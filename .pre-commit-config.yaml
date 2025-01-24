@@ -1,0 +1,52 @@
+repos:
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa-black
+        additional_dependencies: [black==24.8.0]
+      - id: nbqa-pyupgrade
+        additional_dependencies: [pyupgrade==3.17.0]
+        args: [--py39-plus]
+      - id: nbqa-isort
+        additional_dependencies: [isort==5.13.2]
+        args: [--profile=black]
+      - id: nbqa-flake8
+        additional_dependencies: [flake8==7.1.1]
+        args: ["--ignore=E501,W503,F704,E203"]
+      - id: nbqa-mypy
+        additional_dependencies: [mypy==1.11.2]
+        args:
+          ["--ignore-missing-imports", "--disable-error-code=top-level-await"]
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.19.1
+    hooks:
+      - id: pyupgrade
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: [--profile=black]
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        args: ["--ignore=E501,W503,F704,E203"]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        args:
+          [
+            "--ignore-missing-imports",
+            "--disable-error-code=top-level-await",
+            "--disable-error-code=empty-body",
+          ]
