@@ -1,1 +1,6 @@
-numpy==2.2.2
+numpy
+python-dotenv
+transformers
+langchain
+torch
+dill
