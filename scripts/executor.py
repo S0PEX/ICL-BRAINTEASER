@@ -9,8 +9,8 @@ import dill as pickle
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain_core.prompt_values import PromptValue
 
+from scripts.lmm import LLM
 from scripts.dataset import RiddleQuestion
-from scripts.llm.lmm import LLM
 
 # Configure logging
 logging.basicConfig(
@@ -55,17 +55,17 @@ class Executor:
 
     def __init__(
         self,
-        model_names: list[str],
+        models: list[str],
         riddle_dataset: list[RiddleQuestion],
         output_dir: Path | str = Path("results"),
     ):
         """Initialize executor with models and dataset"""
-        self.model_names = model_names
+        self.model_names = models
         self.riddle_dataset = riddle_dataset
         self.output_dir = Path(output_dir)
         self._init_output_dir()
         logger.info(
-            f"Initialized executor with {len(model_names)} models and {len(riddle_dataset)} riddles"
+            f"Initialized executor with {len(models)} models and {len(riddle_dataset)} riddles"
         )
 
     def _init_output_dir(self):
@@ -94,10 +94,10 @@ class Executor:
         riddle: RiddleQuestion,
         model: LLM,
         prompt_template: ChatPromptTemplate,
-        args_generator: Callable[[str, RiddleQuestion], dict],
+        args_generator: Callable[[RiddleQuestion], dict],
     ) -> ExecutionResult:
         """Execute model on a single riddle"""
-        template_args = args_generator(model_name, riddle)
+        template_args = args_generator(riddle)
         start = time.time()
         output = model.generate(prompt_template, template_args)
         duration = int(time.time() - start)
@@ -113,7 +113,7 @@ class Executor:
     def execute(
         self,
         prompt_template: ChatPromptTemplate,
-        args_generator: Callable[[str, RiddleQuestion], dict],
+        args_generator: Callable[[RiddleQuestion], dict],
     ) -> dict[str, list[ExecutionResult]]:
         """Execute all models on the dataset"""
         logger.info("Starting execution")

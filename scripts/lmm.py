@@ -130,6 +130,14 @@ class LLM:
         generations = self.llm(messages)
         return self._parse_generation(generations)
 
+    def cleanup(self):
+        """Cleanup the model by freeing up resources.
+
+        This method should be called when the LLM instance is no longer needed
+        to properly free system resources.
+        """
+        del self.llm
+
     def __or__(self, template: ChatPromptTemplate) -> Callable[[dict], ChatHistory]:
         """Overloads the | operator to create a bound template function.
 
