@@ -78,3 +78,29 @@ jupyter notebook
 ```
 
 This will open a new browser window where you can navigate to the notebook files and run the experiments.
+
+### 4. Advanced Usage
+
+Performing machine learning experiments can be time-consuming and requires a lot of processing power. To speed up the process, you can use a remote server to offload the processing. The easiest way to do this is to use [**Google Colab**](https://colab.research.google.com/).
+
+A more advanced way to do this is to use a remote server. You can use [**Google Cloud**](https://cloud.google.com/) or [**AWS**](https://aws.amazon.com/) to set up a remote server. Then install the required dependencies and Jupyter Notebook and access it through VSCode or the browser to execute the notebooks. Alternatively, you can extract the notebooks from the Jupyter Notebook and run them in a local Python environment as a script directly.
+
+My current setup is to run the notebooks on a GCP VM and connect to it through VSCode. VSCode will **not** handle uploading the files under `data`, `notebooks`, and `scripts` to the VM. For this you can use `rsync`, `git`, or `scp`. The benefit of using a remote server is that you can leave the VM running and exit from your local VSCode. Therefore, you must spin up a `tmux` or `nohup` session to run the Jupyter Server or the script directly; otherwise, the session will be terminated once you exit from the shell. I prefer to run the Jupyter notebook instead of the script because it is easier to debug and it is more interactive.
+
+Setting up the VM:
+
+```bash
+$ sudo apt-get update && sudo apt-get install -y tmux
+$ sudo apt-get install -y python3-pip
+$ sudo apt-get install -y python3-venv
+$ python3 -m venv venv
+$ source venv/bin/activate
+$ pip install -r requirements.txt
+$ tmux new -s brainteaser
+$ jupyter notebook password # set a password for the jupyter notebook server
+$ jupyter notebook --no-browser --port=8888 --ip=0.0.0.0 # Then use Ctrl+B, D to detach from the session
+```
+
+You can then connect to the Jupyter Notebook server by opening the URL `http://{your_vm_ip}:8888/` in your browser and entering the password you set. Or you can use the VS Code extension to connect to the Jupyter Notebook server.
+
+**Note:** Make sure you open port 8888 in the VM firewall settings and also from the firewall settings in the GCP Console.
