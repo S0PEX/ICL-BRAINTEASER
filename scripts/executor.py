@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from collections.abc import Callable
 
 import dill as pickle
-import torch
-from transformers import pipeline
+from langchain.prompts.chat import ChatPromptTemplate
+from langchain_core.prompt_values import PromptValue
 
 from scripts.dataset import RiddleQuestion
+from scripts.llm.lmm import LLM
 
 # Configure logging
 logging.basicConfig(
@@ -19,149 +20,129 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PromptMessage:
-    """Represents a single message in a model prompt with role and content"""
+class ExecutionResult:
+    """Result of executing a model on a single riddle question"""
 
-    role: str  # The role of the message sender (e.g. 'system', 'user', 'assistant')
-    content: str  # The actual message content
+    model_name: str
+    riddle: RiddleQuestion
+    prompt_used: PromptValue
+    model_output: str
+    execution_time: int
 
+    def get_model_name(self) -> str:
+        """Get the name of the model used"""
+        return self.model_name
 
-@dataclass
-class ModelExecutionResult:
-    """Stores model execution results along with the prompts used"""
+    def get_prompt(self) -> PromptValue:
+        """Get the prompt that was used"""
+        return self.prompt_used
 
-    model: str
-    riddle_question: RiddleQuestion
-    prompt_messages: list[dict]
-    output: list[any]
-    duration_in_seconds: int
+    def get_output(self) -> str:
+        """Get the raw model output"""
+        return self.model_output
 
-    def model_name(self) -> str:
-        """Returns the name of the model used"""
-        return self.model
+    def get_execution_time(self) -> int:
+        """Get execution duration in seconds"""
+        return self.execution_time
 
-    def prompt_messages(self) -> list[dict]:
-        """Returns the list of prompt messages used"""
-        return self.prompt_messages
-
-    def output(self) -> list[any]:
-        """Returns the raw output from the model"""
-        return self.output
-
-    def duration_in_seconds(self) -> int:
-        """Returns the duration of the model execution in seconds"""
-        return self.duration_in_seconds
-
-    def model_response(self) -> str:
-        """Returns the final generated text content from the model"""
-        return self.output[-1]["generated_text"][-1]["content"]
+    def get_response(self) -> str:
+        """Get the final model response"""
+        return self.model_output
 
 
-class ModelExecutor:
-    """Handles execution of language models on riddle questions"""
+class Executor:
+    """Executes language models on riddle questions"""
 
     def __init__(
         self,
-        models: list[str],
-        dataset: list[RiddleQuestion],
-        results_path: Path | str = Path("results"),
+        model_names: list[str],
+        riddle_dataset: list[RiddleQuestion],
+        output_dir: Path | str = Path("results"),
     ):
-        self.models = models
-        self.dataset = dataset
-        self.results_path = Path(results_path)
-        self._ensure_results_directory()
+        """Initialize executor with models and dataset"""
+        self.model_names = model_names
+        self.riddle_dataset = riddle_dataset
+        self.output_dir = Path(output_dir)
+        self._init_output_dir()
         logger.info(
-            f"Initialized ModelExecutor with {len(models)} models and {len(dataset)} riddle questions"
+            f"Initialized executor with {len(model_names)} models and {len(riddle_dataset)} riddles"
         )
 
-    def _ensure_results_directory(self):
-        """Creates results directory if it doesn't exist"""
-        if not self.results_path.exists():
-            logger.warning(
-                f"Results path {self.results_path} does not exist, creating it..."
-            )
-            self.results_path.mkdir(parents=True, exist_ok=True)
+    def _init_output_dir(self):
+        """Initialize output directory"""
+        if not self.output_dir.exists():
+            logger.warning(f"Creating output directory: {self.output_dir}")
+            self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def create_pipeline(self, model: str) -> pipeline:
-        """Creates a text generation pipeline for the specified model"""
-        logger.info(f"Creating pipeline for model: {model}")
-        pipe = pipeline("text-generation", model)
-        logger.info("Pipeline created successfully")
-        return pipe
-
-    def _cleanup_model_resources(self, pipe):
-        """Cleans up model resources and frees memory"""
-        logger.info("Cleaning up model resources...")
-        del pipe
-        import gc
-
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        logger.info("Resource cleanup completed")
-
-    def _save_results(self, results: dict, input_generator: Callable):
-        """Saves execution results to disk"""
-        logger.info("Saving final results to disk...")
-        final_results_path = self.results_path / "all_results.pkl"
-        results_metadata = {
-            "models": self.models,
-            "template": input_generator.__name__,
+    def _persist_results(self, results: dict, args_generator: Callable):
+        """Save results to disk"""
+        logger.info("Persisting results...")
+        output_path = self.output_dir / "all_results.pkl"
+        metadata = {
+            "models": self.model_names,
+            "template": args_generator.__name__,
             "timestamp": datetime.datetime.now().isoformat(),
             "results": results,
         }
-        with open(final_results_path, "wb") as f:
-            pickle.dump(results_metadata, f)
-        logger.info(f"Final results saved to {final_results_path}")
+        with open(output_path, "wb") as f:
+            pickle.dump(metadata, f)
+        logger.info(f"Results saved to {output_path}")
 
-    def _process_riddle(
+    def _execute_riddle(
         self,
-        model: str,
-        riddle_question: RiddleQuestion,
-        pipe,
-        input_generator: Callable,
-    ) -> ModelExecutionResult:
-        """Processes a single riddle question"""
-        messages = input_generator(model, riddle_question)
-        start_time = time.time()
-        outputs = pipe(messages, max_new_tokens=256)
-        duration_in_seconds = int(time.time() - start_time)
-        logger.info(f"{model} execution took {duration_in_seconds} seconds")
-        return ModelExecutionResult(
-            model=model,
-            riddle_question=riddle_question,
-            prompt_messages=messages,
-            output=outputs,
-            duration_in_seconds=duration_in_seconds,
+        model_name: str,
+        riddle: RiddleQuestion,
+        model: LLM,
+        prompt_template: ChatPromptTemplate,
+        args_generator: Callable[[str, RiddleQuestion], dict],
+    ) -> ExecutionResult:
+        """Execute model on a single riddle"""
+        template_args = args_generator(model_name, riddle)
+        start = time.time()
+        output = model.generate(prompt_template, template_args)
+        duration = int(time.time() - start)
+        logger.info(f"{model_name} took {duration}s")
+        return ExecutionResult(
+            model_name=model_name,
+            riddle=riddle,
+            prompt_used=template_args,
+            model_output=output,
+            execution_time=duration,
         )
 
-    def run(
-        self, input_generator: Callable[[str, RiddleQuestion], list[PromptMessage]]
-    ) -> dict[str, list[ModelExecutionResult]]:
-        """Runs the models on the dataset using the provided input generator"""
-        logger.info("Starting model execution run")
-        results: dict[str, list[ModelExecutionResult]] = {
-            model: [] for model in self.models
+    def execute(
+        self,
+        prompt_template: ChatPromptTemplate,
+        args_generator: Callable[[str, RiddleQuestion], dict],
+    ) -> dict[str, list[ExecutionResult]]:
+        """Execute all models on the dataset"""
+        logger.info("Starting execution")
+        results: dict[str, list[ExecutionResult]] = {
+            model: [] for model in self.model_names
         }
 
-        for model in self.models:
-            logger.info(f"Processing model: {model}")
-            pipe = self.create_pipeline(model)
+        for model_name in self.model_names:
+            logger.info(f"Processing {model_name}")
+            model = LLM(model_name)
             try:
                 model_results = []
-                for i, riddle_question in enumerate(self.dataset, 1):
+                for i, riddle in enumerate(self.riddle_dataset, 1):
                     logger.debug(
-                        f"Processing riddle {i}/{len(self.dataset)}: {riddle_question.id}"
+                        f"Processing riddle {i}/{len(self.riddle_dataset)}: {riddle.id}"
                     )
-                    result = self._process_riddle(
-                        model, riddle_question, pipe, input_generator
+                    result = self._execute_riddle(
+                        model_name,
+                        riddle,
+                        model,
+                        prompt_template,
+                        args_generator,
                     )
                     model_results.append(result)
-                results[model] = model_results
-                logger.info(f"Completed processing for model: {model}")
+                results[model_name] = model_results
+                logger.info(f"Completed {model_name}")
             finally:
-                self._cleanup_model_resources(pipe)
+                model.cleanup()
 
-        self._save_results(results, input_generator)
-        logger.info("Model execution run completed")
+        self._persist_results(results, args_generator)
+        logger.info("Execution completed")
         return results
