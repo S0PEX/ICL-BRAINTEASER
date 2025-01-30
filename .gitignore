@@ -149,3 +149,4 @@ data/
 # Huggingface models
 models
 
+*.pkl
