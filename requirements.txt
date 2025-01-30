@@ -4,3 +4,6 @@ transformers
 langchain
 torch
 dill
+ollama
+langchain-ollama
+tqdm

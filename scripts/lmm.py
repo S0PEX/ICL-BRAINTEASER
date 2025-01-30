@@ -1,6 +1,7 @@
-from collections.abc import Callable
+from abc import ABC, abstractmethod
 
 from transformers import pipeline
+from langchain_ollama import ChatOllama
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
@@ -58,7 +59,64 @@ class ChatHistory:
         return self.messages[-1]
 
 
-class LLM:
+class LLM(ABC):
+    """Interface for language model implementations"""
+
+    @abstractmethod
+    def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
+        """Generate text based on the provided chat template and arguments.
+
+        Args:
+            chat_template (ChatPromptTemplate): Template for formatting the prompt
+            args (dict): Arguments to fill in the template
+
+        Returns:
+            ChatHistory: Generated chat history
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def cleanup(self):
+        """Cleanup the model by freeing up resources.
+
+        This method should be called when the LLM instance is no longer needed
+        to properly free system resources.
+        """
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Get the name of the model."""
+        raise NotImplementedError
+
+
+class OllamaLlm(LLM):
+    """Language model class that wraps Ollama models for text generation"""
+
+    def __init__(self, model: str):
+        """Initialize the language model with the specified model name and device
+
+        Args:
+            model (str): Name/path of the Ollama model to use
+        """
+        self.model = model
+        self.llm = ChatOllama(model=model)
+
+    def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
+        messages = chat_template.format_messages(**args)
+        response = self.llm.invoke(messages)
+        return ChatHistory([messages, response])
+
+    def cleanup(self):
+        pass
+
+    @property
+    def name(self) -> str:
+        return self.model
+
+
+class HuggingfacePipelineLlm(LLM):
     """Language model class that wraps HuggingFace models for text generation"""
 
     def __init__(self, model: str, device: int | None = None):
@@ -137,27 +195,6 @@ class LLM:
         to properly free system resources.
         """
         del self.llm
-
-    def __or__(self, template: ChatPromptTemplate) -> Callable[[dict], ChatHistory]:
-        """Overloads the | operator to create a bound template function.
-
-        This allows using the | operator to bind a template to the LLM instance,
-        creating a callback function that can generate responses using that template.
-
-        Example:
-            llm = LLM("model_name")
-            template = ChatPromptTemplate(...)
-            generate_response = llm | template
-            history = generate_response({"arg1": "value1"})
-
-        Args:
-            template (ChatPromptTemplate): The chat prompt template to bind to this LLM
-
-        Returns:
-            Callable[[dict], ChatHistory]: A function that takes template arguments and
-                returns the generated chat history
-        """
-        return lambda args: self.generate(template, args)
 
     @property
     def name(self) -> str:
