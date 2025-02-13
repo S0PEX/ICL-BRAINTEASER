@@ -1,7 +1,11 @@
+import time
 import logging
+from pathlib import Path
 from dataclasses import dataclass
 from collections.abc import Callable
 
+import dill as pickle
+from tqdm.auto import tqdm
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain_core.prompt_values import PromptValue
 
@@ -56,6 +60,15 @@ class Executor:
         logger.info(
             f"Initialized executor with {len(models)} models and {len(riddle_dataset)} riddles"
         )
+        self.results_dir = Path("results")
+        if not self.results_dir.exists():
+            self.results_dir.mkdir()
+            logger.info(f"Created results directory at {self.results_dir}")
+
+        self.checkpoints_dir = self.results_dir / "checkpoints"
+        if not self.checkpoints_dir.exists():
+            self.checkpoints_dir.mkdir()
+            logger.info(f"Created checkpoints directory at {self.checkpoints_dir}")
 
     def _execute_riddle(
         self,
@@ -66,20 +79,32 @@ class Executor:
     ) -> ExecutionResult:
         """Execute model on a single riddle"""
         template_args = args_generator(riddle)
+        start_time = time.time()
         output = model.generate(prompt_template, template_args)
+        delta = time.time() - start_time
+
         return ExecutionResult(
             model_name=model.name,
             riddle=riddle,
             prompt_used=template_args,
             model_output=output,
+            execution_time=delta,
         )
 
     def execute(
         self,
         prompt_template: ChatPromptTemplate,
         args_generator: Callable[[RiddleQuestion], dict],
+        dump_to_pickle: bool = False,
+        file_name: str | None = None,
+        create_checkpoints: bool = False,
     ) -> dict[str, list[ExecutionResult]]:
         """Execute all models on the dataset"""
+
+        if file_name is None:
+            file_name = "results.pkl"
+            logger.warning(f"No file name provided, using default: {file_name}")
+
         logger.info("Starting execution")
         results: dict[str, list[ExecutionResult]] = {
             model.name: [] for model in self.models
@@ -87,12 +112,15 @@ class Executor:
 
         for model in self.models:
             logger.info(f"Processing {model.name}")
+            model.setup()
+
             try:
                 model_results = []
-                for i, riddle in enumerate(self.riddle_dataset, 1):
-                    logger.debug(
-                        f"Processing riddle {i}/{len(self.riddle_dataset)}: {riddle.id}"
-                    )
+                for riddle in tqdm(
+                    self.riddle_dataset,
+                    desc=model.name,
+                    total=len(self.riddle_dataset),
+                ):
                     result = self._execute_riddle(
                         model,
                         riddle,
@@ -101,9 +129,19 @@ class Executor:
                     )
                     model_results.append(result)
                 results[model.name] = model_results
-                logger.info(f"Completed {model.name}")
+
+                # Dump results to pickle checkpoint if checkpointing is enabled
+                if create_checkpoints:
+                    file_path = self.checkpoints_dir / f"{model.name}_{file_name}.pkl"
+                    logger.info(f"Dumping results to {file_path}")
+                    with open(file_path, "wb") as f:
+                        pickle.dump(model_results, f)
             finally:
                 model.cleanup()
 
-        logger.info("Execution completed")
+        if dump_to_pickle:
+            file_path = self.results_dir / file_name
+            logger.info(f"Dumping results to {file_path}")
+            with open(file_path, "wb") as f:
+                pickle.dump(results, f)
         return results

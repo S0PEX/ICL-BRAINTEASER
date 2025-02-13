@@ -1,9 +1,10 @@
+import logging
 from abc import ABC, abstractmethod
 
-from transformers import pipeline
+import ollama
 from langchain_ollama import ChatOllama
 from langchain.prompts.chat import ChatPromptTemplate
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage
 
 """
 NOTE: These classes serve as temporary replacements for LangChain's LLM and HuggingFacePipeline classes
@@ -15,6 +16,13 @@ chains. This custom implementation allows for more control over the tokenization
 This is intended to be replaced once LangChain's implementation provides more flexible customization
 options or the tokenizer issues are resolved.
 """
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 class ChatHistory:
@@ -63,6 +71,11 @@ class LLM(ABC):
     """Interface for language model implementations"""
 
     @abstractmethod
+    def setup():
+        """Setup the model and any required resources."""
+        raise NotImplementedError
+
+    @abstractmethod
     def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
         """Generate text based on the provided chat template and arguments.
 
@@ -103,100 +116,126 @@ class OllamaLlm(LLM):
         self.model = model
         self.llm = ChatOllama(model=model)
 
+    def setup(self):
+        """Ensure that the model is pulled from ollama and ready for use."""
+
+        # Pull image
+        logger.info(f"Pulling Ollama model: {self.model}")
+        try:
+            ollama.pull(self.model)
+        except Exception as e:
+            logger.error(f"Error pulling Ollama model: {e}")
+            if "space" in str(e):
+                models_on_disk = ollama.list()
+                for model in models_on_disk:
+                    ollama.delete(model)
+                ollama.pull(self.model)
+            else:
+                raise e
+
     def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
+        """Generate text based on the provided chat template and arguments."""
+
         messages = chat_template.format_messages(**args)
         response = self.llm.invoke(messages)
         return ChatHistory([messages, response])
 
     def cleanup(self):
-        pass
+        """Cleanup the model by freeing up resources."""
 
-    @property
-    def name(self) -> str:
-        return self.model
-
-
-class HuggingfacePipelineLlm(LLM):
-    """Language model class that wraps HuggingFace models for text generation"""
-
-    def __init__(self, model: str, device: int | None = None):
-        """Initialize the language model with the specified model name and device
-
-        Args:
-            model (str): Name/path of the HuggingFace model to use
-            device (int | None): Device ID to run the model on. None for CPU, int for specific GPU
-        """
-        self.model = model
-        self.llm = pipeline(
-            model=model,
-            task="text-generation",
-            device=device if device is not None else -1,
+        # Delete image
+        logger.info(
+            "Ollama models will be deleted on demand and therefore this step is skipped!"
         )
-
-    def _convert_message_to_dict(self, message: BaseMessage) -> dict:
-        """Convert a LangChain message to a dict format for the model.
-
-        Args:
-            message (BaseMessage): Message to convert
-
-        Returns:
-            dict: Message in dict format with role and content
-        """
-        if isinstance(message, SystemMessage):
-            return {"role": "system", "content": message.content}
-        elif isinstance(message, HumanMessage):
-            return {"role": "user", "content": message.content}
-        else:
-            raise ValueError(f"Unsupported message type: {type(message)}")
-
-    def _parse_generation(self, generation: list[dict]) -> ChatHistory:
-        """Parse model generation output into a ChatHistory.
-
-        Args:
-            generation (list[dict]): Raw generation output from model
-
-        Returns:
-            ChatHistory: Parsed chat history
-        """
-        messages = []
-        for gen in generation:
-            for msg in gen["generated_text"]:
-                role = msg["role"]
-                content = msg["content"]
-                if role == "system":
-                    messages.append(SystemMessage(content=content))
-                elif role == "user":
-                    messages.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    messages.append(AIMessage(content=content))
-        return ChatHistory(messages)
-
-    def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
-        """Generate text based on the provided chat template and arguments.
-
-        Args:
-            chat_template (ChatPromptTemplate): Template for formatting the prompt
-            args (dict): Arguments to fill in the template
-
-        Returns:
-            ChatHistory: Generated chat history
-        """
-        messages = [
-            self._convert_message_to_dict(msg)
-            for msg in chat_template.format_messages(**args)
-        ]
-        generations = self.llm(messages)
-        return self._parse_generation(generations)
-
-    def cleanup(self):
-        """Cleanup the model by freeing up resources.
-
-        This method should be called when the LLM instance is no longer needed
-        to properly free system resources.
-        """
-        del self.llm
 
     @property
     def name(self) -> str:
         """Get the name of the model."""
+
         return self.model
+
+
+# class HuggingfacePipelineLlm(LLM):
+#     """Language model class that wraps HuggingFace models for text generation"""
+
+#     def __init__(self, model: str, device: int | None = None):
+#         """Initialize the language model with the specified model name and device
+
+#         Args:
+#             model (str): Name/path of the HuggingFace model to use
+#             device (int | None): Device ID to run the model on. None for CPU, int for specific GPU
+#         """
+#         self.model = model
+#         self.llm = pipeline(
+#             model=model,
+#             task="text-generation",
+#             device=device if device is not None else -1,
+#         )
+
+#     def _convert_message_to_dict(self, message: BaseMessage) -> dict:
+#         """Convert a LangChain message to a dict format for the model.
+
+#         Args:
+#             message (BaseMessage): Message to convert
+
+#         Returns:
+#             dict: Message in dict format with role and content
+#         """
+#         if isinstance(message, SystemMessage):
+#             return {"role": "system", "content": message.content}
+#         elif isinstance(message, HumanMessage):
+#             return {"role": "user", "content": message.content}
+#         else:
+#             raise ValueError(f"Unsupported message type: {type(message)}")
+
+#     def _parse_generation(self, generation: list[dict]) -> ChatHistory:
+#         """Parse model generation output into a ChatHistory.
+
+#         Args:
+#             generation (list[dict]): Raw generation output from model
+
+#         Returns:
+#             ChatHistory: Parsed chat history
+#         """
+#         messages = []
+#         for gen in generation:
+#             for msg in gen["generated_text"]:
+#                 role = msg["role"]
+#                 content = msg["content"]
+#                 if role == "system":
+#                     messages.append(SystemMessage(content=content))
+#                 elif role == "user":
+#                     messages.append(HumanMessage(content=content))
+#                 elif role == "assistant":
+#                     messages.append(AIMessage(content=content))
+#         return ChatHistory(messages)
+
+#     def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
+#         """Generate text based on the provided chat template and arguments.
+
+#         Args:
+#             chat_template (ChatPromptTemplate): Template for formatting the prompt
+#             args (dict): Arguments to fill in the template
+
+#         Returns:
+#             ChatHistory: Generated chat history
+#         """
+#         messages = [
+#             self._convert_message_to_dict(msg)
+#             for msg in chat_template.format_messages(**args)
+#         ]
+#         generations = self.llm(messages)
+#         return self._parse_generation(generations)
+
+#     def cleanup(self):
+#         """Cleanup the model by freeing up resources.
+
+#         This method should be called when the LLM instance is no longer needed
+#         to properly free system resources.
+#         """
+#         del self.llm
+
+#     @property
+#     def name(self) -> str:
+#         """Get the name of the model."""
+#         return self.model
