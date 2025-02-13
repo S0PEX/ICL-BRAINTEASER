@@ -30,12 +30,20 @@ def load_qa_set(file_path: str) -> list[RiddleQuestion]:
         List of RiddleQuestion objects
     """
     dataset = np.load(file_path, allow_pickle=True)
-    # Convert 'distractor(unsure)' key to 'distractor_unsure' before creating RiddleQuestion
     riddle_questions = []
-    for item in dataset:
-        if "distractor(unsure)" in item:
-            item["distractor_unsure"] = item.pop("distractor(unsure)")
-        riddle_questions.append(RiddleQuestion(**item))
+
+    # Convert 'distractor(unsure)' key to 'distractor_unsure' before creating RiddleQuestion
+    # addionally, rename 'distrator1' and 'distrator2' to 'distractor1' and 'distractor2' respectively to fix typos
+    field_map = {
+        "distractor(unsure)": "distractor_unsure",
+        "distrator(unsure)": "distractor_unsure",
+        "distrator1": "distractor1",
+        "distrator2": "distractor2",
+    }
+    riddle_questions = [
+        RiddleQuestion(**{field_map.get(k, k): v for k, v in item.items()})
+        for item in dataset
+    ]
     return riddle_questions
 
 
@@ -62,9 +70,9 @@ class BrainteaserDataset:
             raise FileNotFoundError(f"The base path {self.base_path} does not exist.")
 
         # Load SP (Simple Problems) datasets
-        self.sp_train = load_qa_set(f"{self.base_path}/SP-train.npy")
-        # self.sp_eval = load_qa_set(f"{self.base_path}/SP_eval_data_for_practice.npy")
+        self.sp = load_qa_set(f"{self.base_path}/sentence_puzzle.npy")
+        self.sp_train = load_qa_set(f"{self.base_path}/SP_train.npy")
 
         # Load WP (Word Problems) datasets
-        self.wp_train = load_qa_set(f"{self.base_path}/WP-train.npy")
-        # self.wp_eval = load_qa_set(f"{self.base_path}/WP_eval_data_for_practice.npy")
+        self.wp = load_qa_set(f"{self.base_path}/word_puzzle.npy")
+        self.wp_train = load_qa_set(f"{self.base_path}/WP_train.npy")

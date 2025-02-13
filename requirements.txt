@@ -1,8 +1,6 @@
 numpy
 python-dotenv
-transformers
 langchain
-torch
 dill
 ollama
 langchain-ollama
