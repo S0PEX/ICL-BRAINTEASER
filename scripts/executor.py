@@ -1,5 +1,6 @@
 import time
 import logging
+from io import BufferedWriter
 from pathlib import Path
 from dataclasses import dataclass
 from collections.abc import Callable
@@ -53,22 +54,12 @@ class ExecutionResult:
 class Executor:
     """Executes language models on riddle questions"""
 
-    def __init__(self, models: list[LLM], riddle_dataset: list[RiddleQuestion]):
+    def __init__(self, models: list[LLM]):
         """Initialize executor with models and dataset"""
         self.models = models
-        self.riddle_dataset = riddle_dataset
-        logger.info(
-            f"Initialized executor with {len(models)} models and {len(riddle_dataset)} riddles"
-        )
+        logger.info(f"Initialized executor with {len(models)} models.")
         self.results_dir = Path("results")
-        if not self.results_dir.exists():
-            self.results_dir.mkdir()
-            logger.info(f"Created results directory at {self.results_dir}")
-
         self.checkpoints_dir = self.results_dir / "checkpoints"
-        if not self.checkpoints_dir.exists():
-            self.checkpoints_dir.mkdir()
-            logger.info(f"Created checkpoints directory at {self.checkpoints_dir}")
 
     def _execute_riddle(
         self,
@@ -91,19 +82,30 @@ class Executor:
             execution_time=delta,
         )
 
+    def _save_open_file(self, file_path: Path | str) -> BufferedWriter:
+        """Open a file for writing, creating parent directories if necessary"""
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        return open(file_path, "wb")
+
     def execute(
         self,
+        dataset: list[RiddleQuestion],
         prompt_template: ChatPromptTemplate,
         args_generator: Callable[[RiddleQuestion], dict],
         dump_to_pickle: bool = False,
-        file_name: str | None = None,
+        result_file_name: str | None = None,
         create_checkpoints: bool = False,
     ) -> dict[str, list[ExecutionResult]]:
         """Execute all models on the dataset"""
 
-        if file_name is None:
-            file_name = "results.pkl"
-            logger.warning(f"No file name provided, using default: {file_name}")
+        if result_file_name is None:
+            result_file_name = "results"
+            logger.warning(f"No file name provided, using default: {result_file_name}")
+        if result_file_name.endswith(".pkl"):
+            result_file_name = result_file_name[:-4]
+            logger.warning(
+                f"File name should not have extension, removing extension: {result_file_name}"
+            )
 
         logger.info("Starting execution")
         results: dict[str, list[ExecutionResult]] = {
@@ -117,9 +119,9 @@ class Executor:
             try:
                 model_results = []
                 for riddle in tqdm(
-                    self.riddle_dataset,
+                    dataset,
                     desc=model.name,
-                    total=len(self.riddle_dataset),
+                    total=len(dataset),
                 ):
                     result = self._execute_riddle(
                         model,
@@ -132,9 +134,14 @@ class Executor:
 
                 # Dump results to pickle checkpoint if checkpointing is enabled
                 if create_checkpoints:
-                    file_path = self.checkpoints_dir / f"{model.name}_{file_name}.pkl"
-                    logger.info(f"Dumping results to {file_path}")
-                    with open(file_path, "wb") as f:
+                    file_path = (
+                        self.checkpoints_dir
+                        / result_file_name
+                        / f"{model.name}_{result_file_name}.pkl"
+                    )
+                    logger.info(f"Creating checkpoint: {file_path}")
+
+                    with self._save_open_file(file_path) as f:
                         pickle.dump(model_results, f)
             finally:
                 logger.info(f"Cleaning up {model.name}")
@@ -143,8 +150,8 @@ class Executor:
         logger.info("Execution complete")
 
         if dump_to_pickle:
-            file_path = self.results_dir / file_name
+            file_path = self.results_dir / f"{result_file_name}.pkl"
             logger.info(f"Dumping results to {file_path}")
-            with open(file_path, "wb") as f:
+            with self._save_open_file(file_path) as f:
                 pickle.dump(results, f)
         return results
