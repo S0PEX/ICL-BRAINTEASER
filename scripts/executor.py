@@ -9,7 +9,7 @@ from tqdm.auto import tqdm
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain_core.prompt_values import PromptValue
 
-from scripts.lmm import LLM
+from scripts.lmm import LLM, ChatHistory
 from scripts.dataset import RiddleQuestion
 
 # Configure logging
@@ -26,7 +26,7 @@ class ExecutionResult:
     model_name: str
     riddle: RiddleQuestion
     prompt_used: PromptValue
-    model_output: str
+    model_output: ChatHistory
     execution_time: int
 
     def get_model_name(self) -> str:
@@ -45,7 +45,7 @@ class ExecutionResult:
         """Get execution duration in seconds"""
         return self.execution_time
 
-    def get_response(self) -> str:
+    def get_response(self) -> ChatHistory:
         """Get the final model response"""
         return self.model_output
 
@@ -137,7 +137,10 @@ class Executor:
                     with open(file_path, "wb") as f:
                         pickle.dump(model_results, f)
             finally:
+                logger.info(f"Cleaning up {model.name}")
                 model.cleanup()
+
+        logger.info("Execution complete")
 
         if dump_to_pickle:
             file_path = self.results_dir / file_name
