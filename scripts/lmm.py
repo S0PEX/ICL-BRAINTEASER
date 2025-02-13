@@ -125,10 +125,12 @@ class OllamaLlm(LLM):
             ollama.pull(self.model)
         except Exception as e:
             logger.error(f"Error pulling Ollama model: {e}")
-            if "space" in str(e):
-                models_on_disk = ollama.list()
-                for model in models_on_disk:
-                    ollama.delete(model)
+            if "no space left on device" in str(e):
+                logger.info("Deleting all ollama models to free up space")
+                list_response = ollama.list()
+                models = list_response.models
+                for model in models:
+                    ollama.delete(model.model)
                 ollama.pull(self.model)
             else:
                 raise e
