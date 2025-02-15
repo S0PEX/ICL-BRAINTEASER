@@ -10,7 +10,6 @@ import dill as pickle
 from tqdm.auto import tqdm
 from more_itertools import batched
 from langchain.prompts.chat import ChatPromptTemplate
-from langchain_core.prompt_values import PromptValue
 
 from scripts.lmm import LLM, ChatHistory
 from scripts.dataset import RiddleQuestion
@@ -28,17 +27,12 @@ class ExecutionResult:
 
     model_name: str
     riddle: RiddleQuestion
-    prompt_used: PromptValue
     model_output: ChatHistory
     execution_time: int
 
     def get_model_name(self) -> str:
         """Get the name of the model used"""
         return self.model_name
-
-    def get_prompt(self) -> PromptValue:
-        """Get the prompt that was used"""
-        return self.prompt_used
 
     def get_output(self) -> str:
         """Get the raw model output"""
@@ -79,7 +73,6 @@ class Executor:
         return ExecutionResult(
             model_name=model.name,
             riddle=riddle,
-            prompt_used=template_args,
             model_output=output,
             execution_time=delta,
         )
@@ -100,7 +93,6 @@ class Executor:
         return ExecutionResult(
             model_name=model.name,
             riddle=riddle,
-            prompt_used=template_args,
             model_output=output,
             execution_time=delta,
         )
