@@ -1,7 +1,9 @@
 numpy
 python-dotenv
 langchain
+langchain_community
 dill
 ollama
 langchain-ollama
 tqdm
+more-itertools
