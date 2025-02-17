@@ -172,17 +172,42 @@ class vLLMModel(LLM):
         return self.model
 
 
+class OllamaModelBuilder:
+    """Builder class for creating OllamaModel instances"""
+
+    def __init__(self, base_url: str = "http://localhost:11434"):
+        """Initialize the builder with base URL.
+
+        Args:
+            base_url (str): Base URL for the Ollama server
+        """
+        self.base_url = base_url
+
+    def build_model(self, model_name: str) -> LLM:
+        """Build an OllamaModel instance with the specified model name.
+
+        Args:
+            model_name (str): Name of the Ollama model to use
+
+        Returns:
+            LLM: Configured OllamaModel instance
+        """
+        return OllamaModel(model=model_name, base_url=self.base_url)
+
+
 class OllamaModel(LLM):
     """Language model class that wraps Ollama models for text generation"""
 
-    def __init__(self, model: str):
+    def __init__(self, model: str, base_url: str = "http://localhost:11434"):
         """Initialize the language model with the specified model name and device
 
         Args:
             model (str): Name/path of the Ollama model to use
         """
         self.model = model
-        self.llm = ChatOllama(model=model)
+        self.base_url = base_url
+        self.llm = ChatOllama(model=model, base_url=base_url)
+        self.ollama_client = ollama.Client(base_url)
 
     def load(self):
         """Ensure that the model is pulled from ollama and ready for use."""
@@ -190,16 +215,16 @@ class OllamaModel(LLM):
         # Pull image
         logger.info(f"Pulling Ollama model: {self.model}")
         try:
-            ollama.pull(self.model)
+            self.ollama_client.pull(self.model)
         except Exception as e:
             logger.error(f"Error pulling Ollama model: {e}")
             if "no space left on device" in str(e):
                 logger.info("Deleting all ollama models to free up space")
-                list_response = ollama.list()
+                list_response = self.ollama_client.list()
                 models = list_response.models
                 for model in models:
-                    ollama.delete(model.model)
-                ollama.pull(self.model)
+                    self.ollama_client.delete(model.model)
+                self.ollama_client.pull(self.model)
             else:
                 raise e
 

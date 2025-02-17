@@ -102,6 +102,13 @@ class Executor:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         return open(file_path, "wb")
 
+    def _load_checkpoint_if_exists(self, file_path: Path) -> list[ExecutionResult]:
+        """Load a checkpoint file if it exists"""
+        if file_path.exists():
+            with open(file_path, "rb") as f:
+                return pickle.load(f)
+        return []
+
     def execute(
         self,
         dataset: list[RiddleQuestion],
@@ -110,6 +117,7 @@ class Executor:
         dump_to_pickle: bool = False,
         result_file_name: str | None = None,
         create_checkpoints: bool = False,
+        resume_from_checkpoint: bool = False,
     ) -> dict[str, list[ExecutionResult]]:
         """Execute all models on the dataset"""
 
@@ -122,12 +130,36 @@ class Executor:
                 f"File name should not have extension, removing extension: {result_file_name}"
             )
 
+        results_file_path = self.results_dir / f"{result_file_name}.pkl"
+        if results_file_path.exists():
+            logger.info(f"Loading results from result file: {results_file_path}")
+            with open(results_file_path, "rb") as f:
+                result = pickle.load(f)
+                if result.keys() == {model.name for model in self.models}:
+                    logger.info("Results file is valid, returning results")
+                    return result
+
         logger.info("Starting execution")
         results: dict[str, list[ExecutionResult]] = {
             model.name: [] for model in self.models
         }
 
         for model in self.models:
+            model_checkpoint_file_path = (
+                self.checkpoints_dir
+                / result_file_name
+                / f"{model.name}_{result_file_name}.pkl"
+            )
+
+            if resume_from_checkpoint and model_checkpoint_file_path.exists():
+                logger.info(f"Loading checkpoint: {model_checkpoint_file_path}")
+                model_results = self._load_checkpoint_if_exists(
+                    model_checkpoint_file_path
+                )
+                results[model.name] = model_results
+                logger.info(f"Loaded {len(model_results)} results from checkpoint")
+                continue
+
             logger.info(f"Processing {model.name}")
             model.load()
 
@@ -149,14 +181,9 @@ class Executor:
 
                 # Dump results to pickle checkpoint if checkpointing is enabled
                 if create_checkpoints:
-                    file_path = (
-                        self.checkpoints_dir
-                        / result_file_name
-                        / f"{model.name}_{result_file_name}.pkl"
-                    )
-                    logger.info(f"Creating checkpoint: {file_path}")
+                    logger.info(f"Creating checkpoint: {model_checkpoint_file_path}")
 
-                    with self._save_open_file(file_path) as f:
+                    with self._save_open_file(model_checkpoint_file_path) as f:
                         pickle.dump(model_results, f)
             finally:
                 logger.info(f"Cleaning up {model.name}")
@@ -165,9 +192,8 @@ class Executor:
         logger.info("Execution complete")
 
         if dump_to_pickle:
-            file_path = self.results_dir / f"{result_file_name}.pkl"
-            logger.info(f"Dumping results to {file_path}")
-            with self._save_open_file(file_path) as f:
+            logger.info(f"Dumping results to {results_file_path}")
+            with self._save_open_file(results_file_path) as f:
                 pickle.dump(results, f)
         return results
 
@@ -180,6 +206,7 @@ class Executor:
         dump_to_pickle: bool = False,
         result_file_name: str | None = None,
         create_checkpoints: bool = False,
+        resume_from_checkpoint: bool = False,
     ) -> dict[str, list[ExecutionResult]]:
         """Asynchronously execute all models on the dataset in batches."""
 
@@ -191,6 +218,15 @@ class Executor:
             logger.warning(
                 f"File name should not have extension, removing extension: {result_file_name}"
             )
+
+        results_file_path = self.results_dir / f"{result_file_name}.pkl"
+        if results_file_path.exists():
+            logger.info(f"Loading results from result file: {results_file_path}")
+            with open(results_file_path, "rb") as f:
+                result = pickle.load(f)
+                if result.keys() == {model.name for model in self.models}:
+                    logger.info("Results file is valid, returning results")
+                    return result
 
         logger.info("Starting asynchronous execution")
         results: dict[str, list[ExecutionResult]] = {
@@ -208,6 +244,21 @@ class Executor:
 
         for model in self.models:
             logger.info(f"Processing {model.name}")
+            model_checkpoint_file_path = (
+                self.checkpoints_dir
+                / result_file_name
+                / f"{model.name}_{result_file_name}.pkl"
+            )
+
+            if resume_from_checkpoint and model_checkpoint_file_path.exists():
+                logger.info(f"Loading checkpoint: {model_checkpoint_file_path}")
+                model_results = self._load_checkpoint_if_exists(
+                    model_checkpoint_file_path
+                )
+                results[model.name] = model_results
+                logger.info(f"Loaded {len(model_results)} results from checkpoint")
+                continue
+
             model.load()
 
             model_results = []
@@ -227,13 +278,8 @@ class Executor:
                 results[model.name] = model_results
 
                 if create_checkpoints:
-                    file_path = (
-                        self.checkpoints_dir
-                        / result_file_name
-                        / f"{model.name}_{result_file_name}.pkl"
-                    )
-                    logger.info(f"Creating checkpoint: {file_path}")
-                    with self._save_open_file(file_path) as f:
+                    logger.info(f"Creating checkpoint: {model_checkpoint_file_path}")
+                    with self._save_open_file(model_checkpoint_file_path) as f:
                         pickle.dump(model_results, f)
 
             finally:
@@ -243,9 +289,8 @@ class Executor:
         logger.info("Asynchronous execution complete")
 
         if dump_to_pickle:
-            file_path = self.results_dir / f"{result_file_name}.pkl"
-            logger.info(f"Dumping results to {file_path}")
-            with self._save_open_file(file_path) as f:
+            logger.info(f"Dumping results to {results_file_path}")
+            with self._save_open_file(results_file_path) as f:
                 pickle.dump(results, f)
 
         return results
