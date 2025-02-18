@@ -161,7 +161,7 @@ class vLLMModel(LLM):
         """Cleanup the model by freeing up resources."""
 
         # Delete image
-        logger.info(
+        logger.debug(
             "Ollama models will be deleted on demand and therefore this step is skipped!"
         )
 
@@ -213,7 +213,7 @@ class OllamaModel(LLM):
         """Ensure that the model is pulled from ollama and ready for use."""
 
         # Pull image
-        logger.info(f"Pulling Ollama model: {self.model}")
+        logger.debug(f"Pulling Ollama model: {self.model}")
         try:
             self.ollama_client.pull(self.model)
         except Exception as e:
@@ -248,7 +248,7 @@ class OllamaModel(LLM):
         """Cleanup the model by freeing up resources."""
 
         # Delete image
-        logger.info(
+        logger.debug(
             "Ollama models will be deleted on demand and therefore this step is skipped!"
         )
 

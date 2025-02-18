@@ -112,7 +112,7 @@ class Executor:
     def execute(
         self,
         dataset: list[RiddleQuestion],
-        prompt_template: ChatPromptTemplate,
+        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict],
         dump_to_pickle: bool = False,
         result_file_name: str | None = None,
@@ -132,14 +132,17 @@ class Executor:
 
         results_file_path = self.results_dir / f"{result_file_name}.pkl"
         if results_file_path.exists():
-            logger.info(f"Loading results from result file: {results_file_path}")
+            logger.debug(f"Loading results from result file: {results_file_path}")
             with open(results_file_path, "rb") as f:
                 result = pickle.load(f)
                 if result.keys() == {model.name for model in self.models}:
-                    logger.info("Results file is valid, returning results")
+                    logger.debug("Results file is valid, returning results")
+                    logger.info(
+                        f"Restored results from results file {results_file_path}, skipping execution for this model!"
+                    )
                     return result
 
-        logger.info("Starting execution")
+        logger.debug("Starting execution")
         results: dict[str, list[ExecutionResult]] = {
             model.name: [] for model in self.models
         }
@@ -152,19 +155,26 @@ class Executor:
             )
 
             if resume_from_checkpoint and model_checkpoint_file_path.exists():
-                logger.info(f"Loading checkpoint: {model_checkpoint_file_path}")
+                logger.debug(f"Loading checkpoint: {model_checkpoint_file_path}")
                 model_results = self._load_checkpoint_if_exists(
                     model_checkpoint_file_path
                 )
                 results[model.name] = model_results
-                logger.info(f"Loaded {len(model_results)} results from checkpoint")
+                logger.debug(f"Loaded {len(model_results)} results from checkpoint")
+                logger.info(
+                    f"Restored results from checkpoint for model {model.name}, skipping execution for this model!"
+                )
                 continue
 
-            logger.info(f"Processing {model.name}")
+            logger.debug(f"Processing {model.name}")
             model.load()
 
             try:
                 model_results = []
+                model_prompt_template = prompt_template
+                if callable(prompt_template):
+                    model_prompt_template = prompt_template(model.name)
+
                 for riddle in tqdm(
                     dataset,
                     desc=model.name,
@@ -173,7 +183,7 @@ class Executor:
                     result = self._execute_riddle(
                         model,
                         riddle,
-                        prompt_template,
+                        model_prompt_template,
                         args_generator,
                     )
                     model_results.append(result)
@@ -186,10 +196,10 @@ class Executor:
                     with self._save_open_file(model_checkpoint_file_path) as f:
                         pickle.dump(model_results, f)
             finally:
-                logger.info(f"Cleaning up {model.name}")
+                logger.debug(f"Cleaning up {model.name}")
                 model.cleanup()
 
-        logger.info("Execution complete")
+        logger.debug("Execution complete")
 
         if dump_to_pickle:
             logger.info(f"Dumping results to {results_file_path}")
@@ -200,7 +210,7 @@ class Executor:
     async def aexecute(
         self,
         dataset: list[RiddleQuestion],
-        prompt_template: ChatPromptTemplate,
+        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict],
         batch_size: int = 5,
         dump_to_pickle: bool = False,
@@ -221,14 +231,17 @@ class Executor:
 
         results_file_path = self.results_dir / f"{result_file_name}.pkl"
         if results_file_path.exists():
-            logger.info(f"Loading results from result file: {results_file_path}")
+            logger.debug(f"Loading results from result file: {results_file_path}")
             with open(results_file_path, "rb") as f:
                 result = pickle.load(f)
                 if result.keys() == {model.name for model in self.models}:
-                    logger.info("Results file is valid, returning results")
+                    logger.debug("Results file is valid, returning results")
+                    logger.info(
+                        f"Restored results from results file {results_file_path}, skipping execution for this model!"
+                    )
                     return result
 
-        logger.info("Starting asynchronous execution")
+        logger.debug("Starting asynchronous execution")
         results: dict[str, list[ExecutionResult]] = {
             model.name: [] for model in self.models
         }
@@ -243,7 +256,7 @@ class Executor:
         )
 
         for model in self.models:
-            logger.info(f"Processing {model.name}")
+            logger.debug(f"Processing {model.name}")
             model_checkpoint_file_path = (
                 self.checkpoints_dir
                 / result_file_name
@@ -251,23 +264,29 @@ class Executor:
             )
 
             if resume_from_checkpoint and model_checkpoint_file_path.exists():
-                logger.info(f"Loading checkpoint: {model_checkpoint_file_path}")
+                logger.debug(f"Loading checkpoint: {model_checkpoint_file_path}")
                 model_results = self._load_checkpoint_if_exists(
                     model_checkpoint_file_path
                 )
                 results[model.name] = model_results
-                logger.info(f"Loaded {len(model_results)} results from checkpoint")
+                logger.info(
+                    f"Restored results from checkpoint for model {model.name}, skipping execution for this model!"
+                )
                 continue
 
             model.load()
 
             model_results = []
+            model_prompt_template = prompt_template
+            if callable(prompt_template):
+                model_prompt_template = prompt_template(model.name)
+
             try:
                 with tqdm(total=len(dataset), desc=model.name) as progress_bar:
                     for chunk in batched_dataset:
                         tasks = [
                             self._aexecute_riddle(
-                                model, riddle, prompt_template, args_generator
+                                model, riddle, model_prompt_template, args_generator
                             )
                             for riddle in chunk
                         ]
@@ -283,10 +302,10 @@ class Executor:
                         pickle.dump(model_results, f)
 
             finally:
-                logger.info(f"Cleaning up {model.name}")
+                logger.debug(f"Cleaning up {model.name}")
                 model.cleanup()
 
-        logger.info("Asynchronous execution complete")
+        logger.debug("Asynchronous execution complete")
 
         if dump_to_pickle:
             logger.info(f"Dumping results to {results_file_path}")
