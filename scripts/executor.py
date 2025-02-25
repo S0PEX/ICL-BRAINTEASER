@@ -1,7 +1,6 @@
 import time
 import asyncio
 import logging
-from io import BufferedWriter
 from pathlib import Path
 from dataclasses import dataclass
 from collections.abc import Callable
@@ -47,27 +46,40 @@ class ExecutionResult:
         return self.model_output
 
 
+@dataclass
+class Dataset:
+    """Dataset of riddle questions"""
+
+    name: str
+    riddles: list[RiddleQuestion]
+
+
 class Executor:
     """Executes language models on riddle questions"""
 
     def __init__(self, models: list[LLM]):
-        """Initialize executor with models and dataset"""
-        self.models = models
+        self.models = {
+            model.name: model for model in models
+        }  # Convert to dict for O(1) lookup
         logger.info(f"Initialized executor with {len(models)} models.")
         self.results_dir = Path("results")
-        self.checkpoints_dir = self.results_dir / "checkpoints"
 
-    def _execute_riddle(
+    async def _execute_riddle_base(
         self,
         model: LLM,
         riddle: RiddleQuestion,
         prompt_template: ChatPromptTemplate,
         args_generator: Callable[[RiddleQuestion], dict],
+        is_async: bool = True,
     ) -> ExecutionResult:
-        """Execute model on a single riddle"""
+        """Base execution function for both sync and async operations"""
         template_args = args_generator(riddle)
         start_time = time.time()
-        output = model.generate(prompt_template, template_args)
+        output = (
+            await model.agenerate(prompt_template, template_args)
+            if is_async
+            else model.generate(prompt_template, template_args)
+        )
         delta = time.time() - start_time
 
         return ExecutionResult(
@@ -77,239 +89,159 @@ class Executor:
             execution_time=delta,
         )
 
-    async def _aexecute_riddle(
-        self,
-        model: LLM,
-        riddle: RiddleQuestion,
-        prompt_template: ChatPromptTemplate,
-        args_generator: Callable[[RiddleQuestion], dict],
-    ) -> ExecutionResult:
-        """Execute model on a single riddle"""
-        template_args = args_generator(riddle)
-        start_time = time.time()
-        output = await model.agenerate(prompt_template, template_args)
-        delta = time.time() - start_time
+    def _execute_riddle(self, *args, **kwargs):
+        """Synchronous wrapper for _execute_riddle_base"""
+        return self._execute_riddle_base(*args, **kwargs, is_async=False)
 
-        return ExecutionResult(
-            model_name=model.name,
-            riddle=riddle,
-            model_output=output,
-            execution_time=delta,
+    async def _aexecute_riddle(self, *args, **kwargs):
+        """Asynchronous wrapper for _execute_riddle_base"""
+        return await self._execute_riddle_base(*args, **kwargs, is_async=True)
+
+    @staticmethod
+    def _sanitize_name(name: str) -> str:
+        """Sanitize a name for file system use"""
+        return "-".join(
+            filter(
+                None,
+                "".join(c if c.isalnum() else "-" for c in name).lower().split("-"),
+            )
         )
 
-    def _save_open_file(self, file_path: Path | str) -> BufferedWriter:
-        """Open a file for writing, creating parent directories if necessary"""
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        return open(file_path, "wb")
+    def _get_paths(self, run_name: str | None) -> tuple[str, Path, Path]:
+        """Get sanitized run name and relevant paths"""
+        sanitized_run_name = self._sanitize_name(run_name or "default-run")
+        run_dir = self.results_dir / sanitized_run_name
+        return (
+            sanitized_run_name,
+            run_dir / "checkpoints",
+            run_dir / f"{sanitized_run_name}_results.pkl",
+        )
 
-    def _load_checkpoint_if_exists(self, file_path: Path) -> list[ExecutionResult]:
-        """Load a checkpoint file if it exists"""
-        if file_path.exists():
-            with open(file_path, "rb") as f:
+    async def _process_model(
+        self,
+        model: LLM,
+        dataset: Dataset,
+        prompt_template: ChatPromptTemplate | Callable,
+        args_generator: Callable,
+        checkpoints_dir: Path,
+        create_checkpoints: bool,
+        resume_from_checkpoint: bool,
+        batch_size: int = 4,
+        suffix_name: str | None = None,
+        is_async: bool = True,
+    ) -> list[ExecutionResult]:
+        """Process a single model with shared logic for sync/async execution"""
+        checkpoint_path = (
+            checkpoints_dir
+            / f"{dataset.name}_{model.name}{'_' + suffix_name if suffix_name else ''}.pkl"
+        )
+
+        if resume_from_checkpoint and checkpoint_path.exists():
+            with open(checkpoint_path, "rb") as f:
+                logger.info(f"Loading cached results from {checkpoint_path}")
                 return pickle.load(f)
-        return []
 
-    def execute(
-        self,
-        dataset: list[RiddleQuestion],
-        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
-        args_generator: Callable[[RiddleQuestion], dict],
-        dump_to_pickle: bool = False,
-        result_file_name: str | None = None,
-        create_checkpoints: bool = False,
-        resume_from_checkpoint: bool = False,
-    ) -> dict[str, list[ExecutionResult]]:
-        """Execute all models on the dataset"""
-
-        if result_file_name is None:
-            result_file_name = "results"
-            logger.warning(f"No file name provided, using default: {result_file_name}")
-        if result_file_name.endswith(".pkl"):
-            result_file_name = result_file_name[:-4]
-            logger.warning(
-                f"File name should not have extension, removing extension: {result_file_name}"
+        model.load()
+        riddles = dataset.riddles
+        try:
+            template = (
+                prompt_template(model.name)
+                if callable(prompt_template)
+                else prompt_template
             )
+            results = []
 
-        results_file_path = self.results_dir / f"{result_file_name}.pkl"
-        if results_file_path.exists():
-            logger.debug(f"Loading results from result file: {results_file_path}")
-            with open(results_file_path, "rb") as f:
-                result = pickle.load(f)
-                if result.keys() == {model.name for model in self.models}:
-                    logger.debug("Results file is valid, returning results")
-                    logger.info(
-                        f"Restored results from results file {results_file_path}, skipping execution for this model!"
-                    )
-                    return result
-
-        logger.debug("Starting execution")
-        results: dict[str, list[ExecutionResult]] = {
-            model.name: [] for model in self.models
-        }
-
-        for model in self.models:
-            model_checkpoint_file_path = (
-                self.checkpoints_dir
-                / result_file_name
-                / f"{model.name}_{result_file_name}.pkl"
-            )
-
-            if resume_from_checkpoint and model_checkpoint_file_path.exists():
-                logger.debug(f"Loading checkpoint: {model_checkpoint_file_path}")
-                model_results = self._load_checkpoint_if_exists(
-                    model_checkpoint_file_path
-                )
-                results[model.name] = model_results
-                logger.debug(f"Loaded {len(model_results)} results from checkpoint")
-                logger.info(
-                    f"Restored results from checkpoint for model {model.name}, skipping execution for this model!"
-                )
-                continue
-
-            logger.debug(f"Processing {model.name}")
-            model.load()
-
-            try:
-                model_results = []
-                model_prompt_template = prompt_template
-                if callable(prompt_template):
-                    model_prompt_template = prompt_template(model.name)
-
-                for riddle in tqdm(
-                    dataset,
-                    desc=model.name,
-                    total=len(dataset),
-                ):
-                    result = self._execute_riddle(
-                        model,
-                        riddle,
-                        model_prompt_template,
-                        args_generator,
-                    )
-                    model_results.append(result)
-                results[model.name] = model_results
-
-                # Dump results to pickle checkpoint if checkpointing is enabled
-                if create_checkpoints:
-                    logger.info(f"Creating checkpoint: {model_checkpoint_file_path}")
-
-                    with self._save_open_file(model_checkpoint_file_path) as f:
-                        pickle.dump(model_results, f)
-            finally:
-                logger.debug(f"Cleaning up {model.name}")
-                model.cleanup()
-
-        logger.debug("Execution complete")
-
-        if dump_to_pickle:
-            logger.info(f"Dumping results to {results_file_path}")
-            with self._save_open_file(results_file_path) as f:
-                pickle.dump(results, f)
-        return results
-
-    async def aexecute(
-        self,
-        dataset: list[RiddleQuestion],
-        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
-        args_generator: Callable[[RiddleQuestion], dict],
-        batch_size: int = 5,
-        dump_to_pickle: bool = False,
-        result_file_name: str | None = None,
-        create_checkpoints: bool = False,
-        resume_from_checkpoint: bool = False,
-    ) -> dict[str, list[ExecutionResult]]:
-        """Asynchronously execute all models on the dataset in batches."""
-
-        if result_file_name is None:
-            result_file_name = "results"
-            logger.warning(f"No file name provided, using default: {result_file_name}")
-        if result_file_name.endswith(".pkl"):
-            result_file_name = result_file_name[:-4]
-            logger.warning(
-                f"File name should not have extension, removing extension: {result_file_name}"
-            )
-
-        results_file_path = self.results_dir / f"{result_file_name}.pkl"
-        if results_file_path.exists():
-            logger.debug(f"Loading results from result file: {results_file_path}")
-            with open(results_file_path, "rb") as f:
-                result = pickle.load(f)
-                if result.keys() == {model.name for model in self.models}:
-                    logger.debug("Results file is valid, returning results")
-                    logger.info(
-                        f"Restored results from results file {results_file_path}, skipping execution for this model!"
-                    )
-                    return result
-
-        logger.debug("Starting asynchronous execution")
-        results: dict[str, list[ExecutionResult]] = {
-            model.name: [] for model in self.models
-        }
-
-        # Create batched dataset
-        batched_dataset = list(batched(dataset, batch_size))
-        total_batches = len(batched_dataset)
-
-        logger.info(
-            f"Split dataset of {len(dataset)} items into {total_batches} "
-            f"batches of size {batch_size}"
-        )
-
-        for model in self.models:
-            logger.debug(f"Processing {model.name}")
-            model_checkpoint_file_path = (
-                self.checkpoints_dir
-                / result_file_name
-                / f"{model.name}_{result_file_name}.pkl"
-            )
-
-            if resume_from_checkpoint and model_checkpoint_file_path.exists():
-                logger.debug(f"Loading checkpoint: {model_checkpoint_file_path}")
-                model_results = self._load_checkpoint_if_exists(
-                    model_checkpoint_file_path
-                )
-                results[model.name] = model_results
-                logger.info(
-                    f"Restored results from checkpoint for model {model.name}, skipping execution for this model!"
-                )
-                continue
-
-            model.load()
-
-            model_results = []
-            model_prompt_template = prompt_template
-            if callable(prompt_template):
-                model_prompt_template = prompt_template(model.name)
-
-            try:
-                with tqdm(total=len(dataset), desc=model.name) as progress_bar:
-                    for chunk in batched_dataset:
+            if is_async:
+                total_riddles = len(riddles)
+                results = []
+                with tqdm(total=total_riddles, desc=f"{model.name}") as pbar:
+                    for chunk in batched(riddles, batch_size):
                         tasks = [
                             self._aexecute_riddle(
-                                model, riddle, model_prompt_template, args_generator
+                                model, riddle, template, args_generator
                             )
                             for riddle in chunk
                         ]
                         chunk_results = await asyncio.gather(*tasks)
-                        model_results.extend(chunk_results)
-                        progress_bar.update(len(chunk))
+                        results.extend(chunk_results)
+                        pbar.update(len(chunk))
+            else:
+                results = [
+                    self._execute_riddle(model, riddle, template, args_generator)
+                    for riddle in tqdm(riddles, desc=model.name)
+                ]
 
-                results[model.name] = model_results
+            if create_checkpoints:
+                checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(checkpoint_path, "wb") as f:
+                    pickle.dump(results, f)
 
-                if create_checkpoints:
-                    logger.info(f"Creating checkpoint: {model_checkpoint_file_path}")
-                    with self._save_open_file(model_checkpoint_file_path) as f:
-                        pickle.dump(model_results, f)
+            return results
+        finally:
+            model.cleanup()
 
-            finally:
-                logger.debug(f"Cleaning up {model.name}")
-                model.cleanup()
+    async def execute(self, *args, **kwargs) -> dict[str, list[ExecutionResult]]:
+        """Synchronous execution wrapper"""
+        return await self._execute_base(*args, **kwargs, is_async=False)
 
-        logger.debug("Asynchronous execution complete")
+    async def aexecute(self, *args, **kwargs) -> dict[str, list[ExecutionResult]]:
+        """Asynchronous execution wrapper"""
+        return await self._execute_base(*args, **kwargs, is_async=True)
+
+    async def _execute_base(
+        self,
+        input_data: Dataset | list[Dataset],
+        prompt_template: ChatPromptTemplate | Callable,
+        args_generator: Callable,
+        run_name: str | None = None,
+        suffix_name: str | None = None,
+        dump_to_pickle: bool = False,
+        create_checkpoints: bool = False,
+        resume_from_checkpoint: bool = False,
+        batch_size: int = 4,
+        is_async: bool = True,
+    ) -> dict[str, list[ExecutionResult]]:
+        """Base execution logic for both sync and async operations"""
+        run_name, checkpoints_dir, results_path = self._get_paths(run_name)
+        sanitized_suffix_name = self._sanitize_name(suffix_name)
+
+        if results_path.exists():
+            with open(results_path, "rb") as f:
+                logger.info(f"Loading cached results from {results_path}")
+                return pickle.load(f).get("results", {})
+
+        if not isinstance(input_data, list):
+            input_data = [input_data]
+
+        logger.info(f"Processing {len(input_data)} datasets")
+        results = {}
+        for dataset in input_data:
+            logger.info(f"Processing dataset: {dataset.name}")
+            results[dataset.name] = {
+                f"{name}_{sanitized_suffix_name}": await self._process_model(
+                    model,
+                    dataset,
+                    prompt_template,
+                    args_generator,
+                    checkpoints_dir,
+                    create_checkpoints,
+                    resume_from_checkpoint,
+                    batch_size,
+                    sanitized_suffix_name,
+                    is_async,
+                )
+                for name, model in self.models.items()
+            }
 
         if dump_to_pickle:
-            logger.info(f"Dumping results to {results_file_path}")
-            with self._save_open_file(results_file_path) as f:
-                pickle.dump(results, f)
+            results_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(results_path, "wb") as f:
+                pickle.dump(
+                    {
+                        "run_name": f"{run_name}",
+                        "results": results,
+                    },
+                    f,
+                )
 
         return results
