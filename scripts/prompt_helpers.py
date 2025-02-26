@@ -35,7 +35,7 @@ def get_system_prompt(template_name: str):
 
 def get_user_prompt():
     prompt = textwrap.dedent("""
-    Please select the best answer for the question. Each question has only one correct solution, including the option 'none of the above'. Your answer should only include the choice:
+    Please select the best answer for the question. Each question has only one correct answer, including the option 'none of the above'. Your answer should only include the choice:
 
     Question: {question}
     Choice:
