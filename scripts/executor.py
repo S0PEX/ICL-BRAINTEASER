@@ -278,7 +278,9 @@ class Executor:
         )
         results = {}
         for dataset in datasets:
-            logger.info(f"Processing dataset: {dataset.name}")
+            logger.info(
+                f"Processing dataset: {dataset.name} with {dataset.size} riddles"
+            )
             dataset_results = {}
 
             for model_name, model in self.models.items():
