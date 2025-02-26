@@ -117,14 +117,16 @@ class Executor:
             )
         )
 
-    def _get_paths(self, run_name: str | None) -> tuple[str, Path, Path]:
+    def _get_paths(
+        self, run_name: str | None, file_name_suffix: str | None
+    ) -> tuple[str, Path, Path]:
         """Get sanitized run name and relevant paths"""
         sanitized_name = self._sanitize_str(run_name or "default-run")
         run_dir = self.results_dir / sanitized_name
         return (
             sanitized_name,
             run_dir / "checkpoints",
-            run_dir / f"{sanitized_name}_results.pkl",
+            run_dir / f"{sanitized_name}_{file_name_suffix}_results.pkl",
         )
 
     async def _process_model(
@@ -258,16 +260,19 @@ class Executor:
         is_async: bool = True,
     ) -> WrappedResults:
         """Base execution logic for both sync and async operations"""
-        run_name, checkpoints_dir, results_path = self._get_paths(run_name)
+        sanitized_run_name = self._sanitize_str(run_name or "default-run")
         sanitized_suffix = (
             self._sanitize_str(file_name_suffix) if file_name_suffix else ""
+        )
+        run_name, checkpoints_dir, results_path = self._get_paths(
+            sanitized_run_name, sanitized_suffix
         )
 
         # Try to load complete results if they exist
         if resume_from_checkpoint and results_path.exists():
             with open(results_path, "rb") as f:
                 logger.info(f"Loading cached results from {results_path}")
-                return pickle.load(f).get("results", {})
+                return pickle.load(f)
 
         # Ensure input_data is a list
         datasets = input_data if isinstance(input_data, list) else [input_data]
