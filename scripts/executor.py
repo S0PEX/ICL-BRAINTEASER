@@ -90,18 +90,18 @@ class Executor:
         )
 
     @staticmethod
-    def _sanitize_name(name: str) -> str:
+    def _sanitize_str(s: str) -> str:
         """Sanitize a name for file system use"""
         return "-".join(
             filter(
                 None,
-                "".join(c if c.isalnum() else "-" for c in name).lower().split("-"),
+                "".join(c if c.isalnum() else "-" for c in s).lower().split("-"),
             )
         )
 
     def _get_paths(self, run_name: str | None) -> tuple[str, Path, Path]:
         """Get sanitized run name and relevant paths"""
-        sanitized_name = self._sanitize_name(run_name or "default-run")
+        sanitized_name = self._sanitize_str(run_name or "default-run")
         run_dir = self.results_dir / sanitized_name
         return (
             sanitized_name,
@@ -119,13 +119,13 @@ class Executor:
         create_checkpoints: bool,
         resume_from_checkpoint: bool,
         batch_size: int = 4,
-        suffix_name: str | None = None,
+        file_name_suffix: str | None = None,
         is_async: bool = True,
     ) -> list[ExecutionResult]:
         """Process a single model with riddles from a dataset"""
         checkpoint_path = (
             checkpoints_dir
-            / f"{dataset.name}_{model.name}{'_' + suffix_name if suffix_name else ''}.pkl"
+            / f"{dataset.name}_{model.name}{'_' + file_name_suffix if file_name_suffix else ''}.pkl"
         )
 
         # Try to load from checkpoint first if enabled
@@ -180,7 +180,7 @@ class Executor:
         prompt_template: ChatPromptTemplate | Callable,
         args_generator: Callable,
         run_name: str | None = None,
-        suffix_name: str | None = None,
+        file_name_suffix: str | None = None,
         dump_to_pickle: bool = False,
         create_checkpoints: bool = False,
         resume_from_checkpoint: bool = False,
@@ -192,7 +192,7 @@ class Executor:
             prompt_template,
             args_generator,
             run_name,
-            suffix_name,
+            file_name_suffix,
             dump_to_pickle,
             create_checkpoints,
             resume_from_checkpoint,
@@ -206,7 +206,7 @@ class Executor:
         prompt_template: ChatPromptTemplate | Callable,
         args_generator: Callable,
         run_name: str | None = None,
-        suffix_name: str | None = None,
+        file_name_suffix: str | None = None,
         dump_to_pickle: bool = False,
         create_checkpoints: bool = False,
         resume_from_checkpoint: bool = False,
@@ -218,7 +218,7 @@ class Executor:
             prompt_template,
             args_generator,
             run_name,
-            suffix_name,
+            file_name_suffix,
             dump_to_pickle,
             create_checkpoints,
             resume_from_checkpoint,
@@ -232,7 +232,7 @@ class Executor:
         prompt_template: ChatPromptTemplate | Callable,
         args_generator: Callable,
         run_name: str | None = None,
-        suffix_name: str | None = None,
+        file_name_suffix: str | None = None,
         dump_to_pickle: bool = False,
         create_checkpoints: bool = False,
         resume_from_checkpoint: bool = False,
@@ -241,7 +241,9 @@ class Executor:
     ) -> dict[str, dict[str, list[ExecutionResult]]]:
         """Base execution logic for both sync and async operations"""
         run_name, checkpoints_dir, results_path = self._get_paths(run_name)
-        sanitized_suffix = self._sanitize_name(suffix_name) if suffix_name else ""
+        sanitized_suffix = (
+            self._sanitize_str(file_name_suffix) if file_name_suffix else ""
+        )
 
         # Try to load complete results if they exist
         if results_path.exists():
@@ -252,9 +254,7 @@ class Executor:
         # Ensure input_data is a list
         datasets = input_data if isinstance(input_data, list) else [input_data]
 
-        logger.info(f"Processing {len(datasets)} datasets")
         results = {}
-
         for dataset in datasets:
             logger.info(f"Processing dataset: {dataset.name}")
             dataset_results = {}
