@@ -303,12 +303,6 @@ class Executor:
             sanitized_run_name, sanitized_suffix
         )
 
-        # Try loading complete results if enabled
-        if resume_from_checkpoint and results_path.exists():
-            logger.info(f"Loading cached results from {results_path}")
-            with open(results_path, "rb") as f:
-                return pickle.load(f)
-
         # Ensure input is a list of datasets
         datasets = [input_data] if not isinstance(input_data, list) else input_data
         total_riddles = sum(
@@ -319,12 +313,24 @@ class Executor:
         suffix_info = f" with suffix '{file_name_suffix}'" if file_name_suffix else ""
         logger.info(
             f"Starting execution '{run_name}{suffix_info}': "
-            f"{len(datasets)} dataset(s) x {len(self.models)} model(s) = {total_riddles} riddle evaluations"
+            f"{len(datasets)} dataset(s) x {len(self.models)} model(s) = "
+            f"{total_riddles} riddle evaluations"
         )
 
-        # Process all models and datasets
-        results = {}
-        with tqdm(total=total_riddles, desc=f"{run_name}({file_name_suffix})") as pbar:
+        # Initialize progress bar
+        desc = f"{run_name}({sanitized_suffix})" if sanitized_suffix else run_name
+        with tqdm(total=total_riddles, desc=desc) as pbar:
+            # Try loading complete results if enabled
+            if resume_from_checkpoint and results_path.exists():
+                logger.debug(f"Loading cached results from {results_path}")
+                with open(results_path, "rb") as f:
+                    wrapped_results = pickle.load(f)
+                pbar.update(total_riddles)
+                pbar.set_postfix({"Status": f"Loaded from cache: {results_path.name}"})
+                return wrapped_results
+
+            # Process all models and datasets
+            results = {}
             for dataset in datasets:
                 logger.debug(
                     f"Processing dataset: {dataset.name} with {dataset.size} riddles"
@@ -348,13 +354,14 @@ class Executor:
 
                 results[dataset.name] = dataset_results
 
-        # Wrap and save results
-        wrapped_results = WrappedResults(run_name, sanitized_suffix, results)
+            # Wrap results
+            wrapped_results = WrappedResults(run_name, sanitized_suffix, results)
 
-        if dump_to_pickle:
-            results_path.parent.mkdir(parents=True, exist_ok=True)
-            logger.info(f"Saving results to {results_path}")
-            with open(results_path, "wb") as f:
-                pickle.dump(wrapped_results, f)
+            # Save results if needed
+            if dump_to_pickle:
+                results_path.parent.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Saving results to {results_path}")
+                with open(results_path, "wb") as f:
+                    pickle.dump(wrapped_results, f)
 
-        return wrapped_results
+            return wrapped_results
