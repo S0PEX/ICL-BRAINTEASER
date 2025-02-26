@@ -49,10 +49,28 @@ class ExecutionResult:
 
 @dataclass
 class Dataset:
-    """Dataset of riddle questions"""
+    """Dataset containing riddle questions"""
 
     name: str
     riddles: list[RiddleQuestion]
+
+    @property
+    def size(self) -> int:
+        """Return the number of riddles in the dataset"""
+        return len(self.riddles)
+
+    def __iter__(self):
+        """Allow iteration over riddles"""
+        return iter(self.riddles)
+
+
+@dataclass
+class WrappedResults:
+    """Container for execution results with metadata"""
+
+    run_name: str
+    suffix: str
+    results: dict[str, dict[str, list[ExecutionResult]]]
 
 
 class Executor:
@@ -185,7 +203,7 @@ class Executor:
         create_checkpoints: bool = False,
         resume_from_checkpoint: bool = False,
         batch_size: int = 4,
-    ) -> dict[str, list[ExecutionResult]]:
+    ) -> WrappedResults:
         """Synchronous execution"""
         return await self._execute_base(
             input_data,
@@ -211,7 +229,7 @@ class Executor:
         create_checkpoints: bool = False,
         resume_from_checkpoint: bool = False,
         batch_size: int = 4,
-    ) -> dict[str, list[ExecutionResult]]:
+    ) -> WrappedResults:
         """Asynchronous execution"""
         return await self._execute_base(
             input_data,
@@ -238,7 +256,7 @@ class Executor:
         resume_from_checkpoint: bool = False,
         batch_size: int = 4,
         is_async: bool = True,
-    ) -> dict[str, dict[str, list[ExecutionResult]]]:
+    ) -> WrappedResults:
         """Base execution logic for both sync and async operations"""
         run_name, checkpoints_dir, results_path = self._get_paths(run_name)
         sanitized_suffix = (
@@ -246,7 +264,7 @@ class Executor:
         )
 
         # Try to load complete results if they exist
-        if results_path.exists():
+        if resume_from_checkpoint and results_path.exists():
             with open(results_path, "rb") as f:
                 logger.info(f"Loading cached results from {results_path}")
                 return pickle.load(f).get("results", {})
@@ -259,11 +277,8 @@ class Executor:
             logger.info(f"Processing dataset: {dataset.name}")
             dataset_results = {}
 
-            for name, model in self.models.items():
-                model_suffix = (
-                    f"{name}_{sanitized_suffix}" if sanitized_suffix else name
-                )
-                dataset_results[model_suffix] = await self._process_model(
+            for model_name, model in self.models.items():
+                dataset_results[model_name] = await self._process_model(
                     model,
                     dataset,
                     prompt_template,
@@ -278,16 +293,16 @@ class Executor:
 
             results[dataset.name] = dataset_results
 
+        # Wrap results to persist execution metadata
+        wrapped_results = WrappedResults(run_name, sanitized_suffix, results)
+
         # Save full results if requested
         if dump_to_pickle:
             results_path.parent.mkdir(parents=True, exist_ok=True)
             with open(results_path, "wb") as f:
                 pickle.dump(
-                    {
-                        "run_name": run_name,
-                        "results": results,
-                    },
+                    wrapped_results,
                     f,
                 )
 
-        return results
+        return wrapped_results
