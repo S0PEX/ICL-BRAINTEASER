@@ -160,7 +160,7 @@ class Executor:
                     {
                         "Dataset": dataset.name,
                         "Model": model.name,
-                        "Progress": f"{riddles_len}/{riddles_len}",
+                        "Progress": f"{riddles_len}/{riddles_len} (cached)",
                     }
                 )
                 return loaded_results
@@ -177,6 +177,14 @@ class Executor:
 
             results = []
             riddles_len = len(riddles)
+
+            pbar.set_postfix(
+                {
+                    "Dataset": dataset.name,
+                    "Model": model.name,
+                    "Progress": f"{0}/{riddles_len}",
+                }
+            )
 
             if is_async:
                 # Process in batches
@@ -223,6 +231,14 @@ class Executor:
                 checkpoints_dir.mkdir(parents=True, exist_ok=True)
                 with open(checkpoint_path, "wb") as f:
                     pickle.dump(results, f)
+                logger.debug(f"Saved checkpoint to {checkpoint_path}")
+                pbar.set_postfix(
+                    {
+                        "Dataset": dataset.name,
+                        "Model": model.name,
+                        "Progress": f"{riddles_len}/{riddles_len} (done)",
+                    }
+                )
 
             return results
         finally:
