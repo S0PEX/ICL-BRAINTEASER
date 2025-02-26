@@ -131,6 +131,7 @@ class Executor:
 
     async def _process_model(
         self,
+        pbar: tqdm,
         model: LLM,
         dataset: Dataset,
         prompt_template: ChatPromptTemplate | Callable,
@@ -151,8 +152,18 @@ class Executor:
         # Try to load from checkpoint first if enabled
         if resume_from_checkpoint and checkpoint_path.exists():
             with open(checkpoint_path, "rb") as f:
-                logger.info(f"Loading cached results from {checkpoint_path}")
-                return pickle.load(f)
+                logger.debug(f"Loading cached results from {checkpoint_path}")
+                loaded_results = pickle.load(f)
+                riddles_len = len(dataset.riddles)
+                pbar.update(riddles_len)
+                pbar.set_postfix(
+                    {
+                        "Dataset": dataset.name,
+                        "Model": model.name,
+                        "Progress": f"{riddles_len}/{riddles_len}",
+                    }
+                )
+                return loaded_results
 
         model.load()
         riddles = dataset.riddles
@@ -165,24 +176,47 @@ class Executor:
             )
 
             results = []
+            riddles_len = len(riddles)
+
             if is_async:
-                with tqdm(total=len(riddles), desc=f"{model.name}") as pbar:
-                    for chunk in batched(riddles, batch_size):
-                        tasks = [
-                            self._execute_riddle(
-                                model, riddle, template, args_generator, True
-                            )
-                            for riddle in chunk
-                        ]
-                        chunk_results = await asyncio.gather(*tasks)
-                        results.extend(chunk_results)
-                        pbar.update(len(chunk))
+                # Process in batches
+                batches = list(batched(riddles, batch_size))
+                for i, chunk in enumerate(batches):
+                    tasks = [
+                        self._execute_riddle(
+                            model, riddle, template, args_generator, True
+                        )
+                        for riddle in chunk
+                    ]
+                    chunk_results = await asyncio.gather(*tasks)
+                    results.extend(chunk_results)
+
+                    # Update progress bar
+                    pbar.set_postfix(
+                        {
+                            "Dataset": dataset.name,
+                            "Model": model.name,
+                            "Progress": f"{min((i + 1) * batch_size, riddles_len)}/{riddles_len}",
+                        }
+                    )
+                    pbar.update(len(chunk))
             else:
-                for riddle in tqdm(riddles, desc=model.name):
+                # Process sequentially
+                for i, riddle in enumerate(riddles):
                     result = await self._execute_riddle(
                         model, riddle, template, args_generator, False
                     )
                     results.append(result)
+
+                    # Update progress bar
+                    pbar.set_postfix(
+                        {
+                            "Dataset": dataset.name,
+                            "Model": model.name,
+                            "Progress": f"{i + 1}/{riddles_len}",
+                        }
+                    )
+                    pbar.update(1)
 
             # Save checkpoint if enabled
             if create_checkpoints:
@@ -260,6 +294,7 @@ class Executor:
         is_async: bool = True,
     ) -> WrappedResults:
         """Base execution logic for both sync and async operations"""
+        # Setup paths and check for cached results
         sanitized_run_name = self._sanitize_str(run_name or "default-run")
         sanitized_suffix = (
             self._sanitize_str(file_name_suffix) if file_name_suffix else ""
@@ -268,52 +303,58 @@ class Executor:
             sanitized_run_name, sanitized_suffix
         )
 
-        # Try to load complete results if they exist
+        # Try loading complete results if enabled
         if resume_from_checkpoint and results_path.exists():
+            logger.info(f"Loading cached results from {results_path}")
             with open(results_path, "rb") as f:
-                logger.info(f"Loading cached results from {results_path}")
                 return pickle.load(f)
 
-        # Ensure input_data is a list
-        datasets = input_data if isinstance(input_data, list) else [input_data]
+        # Ensure input is a list of datasets
+        datasets = [input_data] if not isinstance(input_data, list) else input_data
+        total_riddles = sum(
+            len(dataset.riddles) * len(self.models) for dataset in datasets
+        )
 
+        # Log execution information
         suffix_info = f" with suffix '{file_name_suffix}'" if file_name_suffix else ""
         logger.info(
-            f"Execution started: {run_name}{suffix_info} | Processing {len(datasets)} dataset(s) across {len(self.models)} model(s)"
+            f"Starting execution '{run_name}{suffix_info}': "
+            f"{len(datasets)} dataset(s) x {len(self.models)} model(s) = {total_riddles} riddle evaluations"
         )
+
+        # Process all models and datasets
         results = {}
-        for dataset in datasets:
-            logger.info(
-                f"Processing dataset: {dataset.name} with {dataset.size} riddles"
-            )
-            dataset_results = {}
-
-            for model_name, model in self.models.items():
-                dataset_results[model_name] = await self._process_model(
-                    model,
-                    dataset,
-                    prompt_template,
-                    args_generator,
-                    checkpoints_dir,
-                    create_checkpoints,
-                    resume_from_checkpoint,
-                    batch_size,
-                    sanitized_suffix,
-                    is_async,
+        with tqdm(total=total_riddles, desc=f"{run_name}({file_name_suffix})") as pbar:
+            for dataset in datasets:
+                logger.debug(
+                    f"Processing dataset: {dataset.name} with {dataset.size} riddles"
                 )
+                dataset_results = {}
 
-            results[dataset.name] = dataset_results
+                for model_name, model in self.models.items():
+                    dataset_results[model_name] = await self._process_model(
+                        pbar,
+                        model,
+                        dataset,
+                        prompt_template,
+                        args_generator,
+                        checkpoints_dir,
+                        create_checkpoints,
+                        resume_from_checkpoint,
+                        batch_size,
+                        sanitized_suffix,
+                        is_async,
+                    )
 
-        # Wrap results to persist execution metadata
+                results[dataset.name] = dataset_results
+
+        # Wrap and save results
         wrapped_results = WrappedResults(run_name, sanitized_suffix, results)
 
-        # Save full results if requested
         if dump_to_pickle:
             results_path.parent.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Saving results to {results_path}")
             with open(results_path, "wb") as f:
-                pickle.dump(
-                    wrapped_results,
-                    f,
-                )
+                pickle.dump(wrapped_results, f)
 
         return wrapped_results
