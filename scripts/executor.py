@@ -272,6 +272,10 @@ class Executor:
         # Ensure input_data is a list
         datasets = input_data if isinstance(input_data, list) else [input_data]
 
+        suffix_info = f" with suffix '{file_name_suffix}'" if file_name_suffix else ""
+        logger.info(
+            f"Execution started: {run_name}{suffix_info} | Processing {len(datasets)} dataset(s) across {len(self.models)} model(s)"
+        )
         results = {}
         for dataset in datasets:
             logger.info(f"Processing dataset: {dataset.name}")
