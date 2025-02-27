@@ -1,4 +1,5 @@
 import textwrap
+from typing import Literal
 
 from langchain.prompts.chat import (
     ChatPromptTemplate,
@@ -7,7 +8,7 @@ from langchain.prompts.chat import (
 )
 
 # System message templates (priming)
-system_templates = {
+system_templates: dict[str, str] = {
     "default": "You are an AI assistant.",
     "default_improved": "You are an AI assistant specialized in lateral thinking puzzles and brain teasers. Analyze each question carefully to find the correct answer among the choices.",
     "step_by_step": "You are a methodical problem solver. For each lateral thinking question, think step by step: first analyze the problem statement, then evaluate each choice systematically, and finally select the single best answer. Show your reasoning process clearly.",
@@ -22,8 +23,23 @@ system_templates = {
     "intuitive": "You combine quick intuition with careful verification. For each puzzle, think step by step by forming an initial impression, then analytically confirm whether your instinct leads to the correct answer.",
 }
 
+TemplateNameType = Literal[
+    "default",
+    "default_improved",
+    "step_by_step",
+    "creative",
+    "elimination",
+    "metaphor",
+    "confidence",
+    "perspective_shift",
+    "common_sense",
+    "assumption_challenge",
+    "pattern_matching",
+    "intuitive",
+]
 
-def get_system_prompt(template_name: str):
+
+def get_system_prompt(template_name: TemplateNameType) -> SystemMessagePromptTemplate:
     system_prompt = system_templates[template_name]
     system_prompt = textwrap.dedent(system_prompt)
 
@@ -33,7 +49,7 @@ def get_system_prompt(template_name: str):
     return system_prompt_template
 
 
-def get_user_prompt():
+def get_user_prompt() -> HumanMessagePromptTemplate:
     prompt = textwrap.dedent("""
     Please select the best answer for the question. Each question has only one correct answer, including the option 'none of the above'. Your answer should only include the choice:
 
@@ -48,8 +64,8 @@ def get_user_prompt():
 
 
 def create_prompt_template(
-    system_prompt_template_name: str = "default",
-):
+    system_prompt_template_name: TemplateNameType = "default",
+) -> ChatPromptTemplate:
     system_prompt_template = get_system_prompt(system_prompt_template_name)
     user_prompt_template = get_user_prompt()
     chat_prompt_template = ChatPromptTemplate.from_messages(

@@ -1,7 +1,7 @@
 import time
 import asyncio
 import logging
-from typing import Any
+from typing import Any, overload
 from pathlib import Path
 from dataclasses import dataclass
 from collections.abc import Callable
@@ -28,17 +28,17 @@ class ExecutionResult:
     model_name: str
     riddle: RiddleQuestion
     model_output: ChatHistory
-    execution_time: float  # Changed to float for more precision
+    execution_time: float
 
     def get_model_name(self) -> str:
         """Get the name of the model used"""
         return self.model_name
 
-    def get_output(self) -> ChatHistory:  # Fixed return type
+    def get_output(self) -> ChatHistory:
         """Get the raw model output"""
         return self.model_output
 
-    def get_execution_time(self) -> float:  # Changed to float
+    def get_execution_time(self) -> float:
         """Get execution duration in seconds"""
         return self.execution_time
 
@@ -93,10 +93,11 @@ class Executor:
         template_args = args_generator(riddle)
         start_time = time.time()
 
-        if is_async:
-            output = await model.agenerate(prompt_template, template_args)
-        else:
-            output = model.generate(prompt_template, template_args)
+        output = (
+            await model.agenerate(prompt_template, template_args)
+            if is_async
+            else model.generate(prompt_template, template_args)
+        )
 
         execution_time = time.time() - start_time
 
@@ -135,7 +136,7 @@ class Executor:
         model: LLM,
         dataset: Dataset,
         prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
-        args_generator: Callable,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         checkpoints_dir: Path,
         create_checkpoints: bool,
         resume_from_checkpoint: bool,
@@ -164,21 +165,21 @@ class Executor:
                 else prompt_template
             )
 
-            results = []
             riddles_len = len(riddles)
 
             # Initialize progress display
             self._update_progress(pbar, dataset.name, model.name, 0, riddles_len)
 
             # Process riddles
-            if is_async:
-                results = await self._process_riddles_async(
+            results = await (
+                self._process_riddles_async(
                     model, riddles, template, args_generator, batch_size, dataset, pbar
                 )
-            else:
-                results = await self._process_riddles_sequential(
+                if is_async
+                else self._process_riddles_sequential(
                     model, riddles, template, args_generator, dataset, pbar
                 )
+            )
 
             # Save checkpoint if enabled
             if create_checkpoints:
@@ -196,10 +197,8 @@ class Executor:
         checkpoints_dir: Path,
     ) -> Path:
         """Get the path for the checkpoint file"""
-        return (
-            checkpoints_dir
-            / f"{dataset.name}_{model.name}{'_' + file_name_suffix if file_name_suffix else ''}.pkl"
-        )
+        suffix = f"_{file_name_suffix}" if file_name_suffix else ""
+        return checkpoints_dir / f"{dataset.name}_{model.name}{suffix}.pkl"
 
     def _load_from_checkpoint(
         self, checkpoint_path: Path, dataset: Dataset, model: LLM, pbar: tqdm
@@ -222,13 +221,16 @@ class Executor:
     def _load_model(self, model: LLM, dataset: Dataset, pbar: tqdm) -> None:
         """Load the model and update progress bar during loading"""
         for loading_status in model.load(stream=True):
+            progress_info = (
+                f" ({loading_status.progress}%)"
+                if loading_status.progress is not None
+                else ""
+            )
             pbar.set_postfix(
                 {
                     "Dataset": dataset.name,
                     "Model": model.name,
-                    "Progress": f"Loading model: {loading_status.message} ({loading_status.progress}%)"
-                    if loading_status.progress is not None
-                    else f"Loading model: {loading_status.message}",
+                    "Progress": f"Loading model: {loading_status.message}{progress_info}",
                 }
             )
 
@@ -242,11 +244,12 @@ class Executor:
         status: str = "",
     ) -> None:
         """Update the progress bar with current status"""
+        status_info = f" ({status})" if status else ""
         pbar.set_postfix(
             {
                 "Dataset": dataset_name,
                 "Model": model_name,
-                "Progress": f"{current}/{total}{' (' + status + ')' if status else ''}",
+                "Progress": f"{current}/{total}{status_info}",
             }
         )
 
@@ -255,7 +258,7 @@ class Executor:
         model: LLM,
         riddles: list[RiddleQuestion],
         template: ChatPromptTemplate,
-        args_generator: Callable,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         batch_size: int,
         dataset: Dataset,
         pbar: tqdm,
@@ -287,7 +290,7 @@ class Executor:
         model: LLM,
         riddles: list[RiddleQuestion],
         template: ChatPromptTemplate,
-        args_generator: Callable,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         dataset: Dataset,
         pbar: tqdm,
     ) -> list[ExecutionResult]:
@@ -326,11 +329,39 @@ class Executor:
             pbar, dataset.name, model.name, riddles_len, riddles_len, "done"
         )
 
+    @overload
+    async def execute(
+        self,
+        input_data: Dataset,
+        prompt_template: ChatPromptTemplate,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
+        run_name: str | None = None,
+        file_name_suffix: str | None = None,
+        dump_to_pickle: bool = False,
+        create_checkpoints: bool = False,
+        resume_from_checkpoint: bool = False,
+        batch_size: int = 4,
+    ) -> WrappedResults: ...
+
+    @overload
+    async def execute(
+        self,
+        input_data: list[Dataset],
+        prompt_template: Callable[[str], ChatPromptTemplate],
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
+        run_name: str | None = None,
+        file_name_suffix: str | None = None,
+        dump_to_pickle: bool = False,
+        create_checkpoints: bool = False,
+        resume_from_checkpoint: bool = False,
+        batch_size: int = 4,
+    ) -> WrappedResults: ...
+
     async def execute(
         self,
         input_data: Dataset | list[Dataset],
         prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
-        args_generator: Callable,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
         dump_to_pickle: bool = False,
@@ -352,11 +383,39 @@ class Executor:
             False,
         )
 
+    @overload
+    async def aexecute(
+        self,
+        input_data: Dataset,
+        prompt_template: ChatPromptTemplate,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
+        run_name: str | None = None,
+        file_name_suffix: str | None = None,
+        dump_to_pickle: bool = False,
+        create_checkpoints: bool = False,
+        resume_from_checkpoint: bool = False,
+        batch_size: int = 4,
+    ) -> WrappedResults: ...
+
+    @overload
+    async def aexecute(
+        self,
+        input_data: list[Dataset],
+        prompt_template: Callable[[str], ChatPromptTemplate],
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
+        run_name: str | None = None,
+        file_name_suffix: str | None = None,
+        dump_to_pickle: bool = False,
+        create_checkpoints: bool = False,
+        resume_from_checkpoint: bool = False,
+        batch_size: int = 4,
+    ) -> WrappedResults: ...
+
     async def aexecute(
         self,
         input_data: Dataset | list[Dataset],
         prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
-        args_generator: Callable,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
         dump_to_pickle: bool = False,
@@ -382,7 +441,7 @@ class Executor:
         self,
         input_data: Dataset | list[Dataset],
         prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
-        args_generator: Callable,
+        args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
         dump_to_pickle: bool = False,
@@ -439,7 +498,7 @@ class Executor:
                 return wrapped_results
 
             # Process all models and datasets
-            results = {}
+            results: dict[str, dict[str, list[ExecutionResult]]] = {}
             for dataset in datasets:
                 logger.debug(
                     f"Processing dataset: {dataset.name} with {dataset.size} riddles"

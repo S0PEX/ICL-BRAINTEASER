@@ -28,27 +28,37 @@ def load_qa_set(file_path: str) -> list[RiddleQuestion]:
 
     Returns:
         List of RiddleQuestion objects
-    """
-    dataset = np.load(file_path, allow_pickle=True)
-    riddle_questions = []
 
-    # Convert 'distractor(unsure)' key to 'distractor_unsure' before creating RiddleQuestion
-    # addionally, rename 'distrator1' and 'distrator2' to 'distractor1' and 'distractor2' respectively to fix typos
-    field_map = {
+    Raises:
+        FileNotFoundError: If the specified file doesn't exist
+        ValueError: If the file format is invalid
+    """
+    # Load the dataset from the numpy file
+    dataset = np.load(file_path, allow_pickle=True)
+
+    # Define field mapping to fix typos and invalid field names in the dataset
+    field_map: dict[str, str] = {
         "distractor(unsure)": "distractor_unsure",
         "distrator(unsure)": "distractor_unsure",
         "distrator1": "distractor1",
         "distrator2": "distractor2",
     }
-    riddle_questions = [
+
+    # Convert each item in the dataset to a RiddleQuestion object
+    # applying field name corrections as needed
+    riddle_questions: list[RiddleQuestion] = [
         RiddleQuestion(**{field_map.get(k, k): v for k, v in item.items()})
         for item in dataset
     ]
+
     return riddle_questions
 
 
 class BrainteaserDataset:
-    """Manages loading and access to brainteaser datasets including Simple Problems (SP) and Word Problems (WP)"""
+    """
+    Manages loading and access to brainteaser datasets including
+    Simple Problems (SP) and Word Problems (WP).
+    """
 
     def __init__(self, base_path: Path | str):
         """
@@ -60,19 +70,26 @@ class BrainteaserDataset:
         Raises:
             FileNotFoundError: If base_path doesn't exist
         """
+        # Convert string path to Path object if needed
         if isinstance(base_path, str):
             base_path = Path(base_path)
 
-        self.base_path = base_path
+        self.base_path: Path = base_path
 
         # Ensure the base path exists
         if not self.base_path.exists():
             raise FileNotFoundError(f"The base path {self.base_path} does not exist.")
 
         # Load SP (Simple Problems) datasets
-        self.sp = load_qa_set(f"{self.base_path}/sentence_puzzle.npy")
-        self.sp_train = load_qa_set(f"{self.base_path}/SP_train.npy")
+        self.sp: list[RiddleQuestion] = load_qa_set(
+            f"{self.base_path}/sentence_puzzle.npy"
+        )
+        self.sp_train: list[RiddleQuestion] = load_qa_set(
+            f"{self.base_path}/SP_train.npy"
+        )
 
         # Load WP (Word Problems) datasets
-        self.wp = load_qa_set(f"{self.base_path}/word_puzzle.npy")
-        self.wp_train = load_qa_set(f"{self.base_path}/WP_train.npy")
+        self.wp: list[RiddleQuestion] = load_qa_set(f"{self.base_path}/word_puzzle.npy")
+        self.wp_train: list[RiddleQuestion] = load_qa_set(
+            f"{self.base_path}/WP_train.npy"
+        )

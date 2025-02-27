@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Literal, overload
+from typing import Any, Literal, overload
 from dataclasses import dataclass
 from collections.abc import Iterator
 
@@ -43,11 +43,11 @@ class ChatHistory:
         """
         self.messages = messages
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[BaseMessage]:
         """Make ChatHistory iterable by returning an iterator over the messages.
 
         Returns:
-            iterator: Iterator over the messages in the chat history
+            Iterator[BaseMessage]: Iterator over the messages in the chat history
         """
         return iter(self.messages)
 
@@ -93,16 +93,25 @@ class LLM(ABC):
 
     @abstractmethod
     def load(self, stream: bool = False) -> LoadingStatus | Iterator[LoadingStatus]:
-        """Setup the model and any required resources."""
+        """Setup the model and any required resources.
+
+        Args:
+            stream (bool): Whether to stream the loading status
+
+        Returns:
+            LoadingStatus | Iterator[LoadingStatus]: Loading status or iterator of loading statuses
+        """
         raise NotImplementedError
 
     @abstractmethod
-    def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
+    def generate(
+        self, chat_template: ChatPromptTemplate, args: dict[str, Any]
+    ) -> ChatHistory:
         """Generate text based on the provided chat template and arguments.
 
         Args:
             chat_template (ChatPromptTemplate): Template for formatting the prompt
-            args (dict): Arguments to fill in the template
+            args (dict[str, Any]): Arguments to fill in the template
 
         Returns:
             ChatHistory: Generated chat history
@@ -110,13 +119,13 @@ class LLM(ABC):
         raise NotImplementedError
 
     async def agenerate(
-        self, chat_template: ChatPromptTemplate, args: dict
+        self, chat_template: ChatPromptTemplate, args: dict[str, Any]
     ) -> ChatHistory:
-        """Generate text based on the provided chat template and arguments.
+        """Generate text asynchronously based on the provided chat template and arguments.
 
         Args:
             chat_template (ChatPromptTemplate): Template for formatting the prompt
-            args (dict): Arguments to fill in the template
+            args (dict[str, Any]): Arguments to fill in the template
 
         Returns:
             ChatHistory: Generated chat history
@@ -124,7 +133,7 @@ class LLM(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Cleanup the model by freeing up resources.
 
         This method should be called when the LLM instance is no longer needed
@@ -135,7 +144,11 @@ class LLM(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
-        """Get the name of the model."""
+        """Get the name of the model.
+
+        Returns:
+            str: The name of the model
+        """
         raise NotImplementedError
 
 
@@ -156,28 +169,50 @@ class vLLMModel(LLM):
         )
 
     def load(self, stream: bool = False) -> LoadingStatus | Iterator[LoadingStatus]:
-        """Ensure that the model is pulled from ollama and ready for use."""
+        """Ensure that the model is pulled from ollama and ready for use.
+
+        Args:
+            stream (bool): Whether to stream the loading status
+
+        Returns:
+            LoadingStatus | Iterator[LoadingStatus]: Loading status or iterator of loading statuses
+        """
         return LoadingStatus(message="Model loaded successfully")
 
-    def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
-        """Generate text based on the provided chat template and arguments."""
+    def generate(
+        self, chat_template: ChatPromptTemplate, args: dict[str, Any]
+    ) -> ChatHistory:
+        """Generate text based on the provided chat template and arguments.
 
+        Args:
+            chat_template (ChatPromptTemplate): Template for formatting the prompt
+            args (dict[str, Any]): Arguments to fill in the template
+
+        Returns:
+            ChatHistory: Generated chat history
+        """
         messages = chat_template.format_messages(**args)
         response = self.llm.invoke(messages)
         return ChatHistory([messages, response])
 
     async def agenerate(
-        self, chat_template: ChatPromptTemplate, args: dict
+        self, chat_template: ChatPromptTemplate, args: dict[str, Any]
     ) -> ChatHistory:
-        """Generate text based on the provided chat template and arguments."""
+        """Generate text asynchronously based on the provided chat template and arguments.
 
+        Args:
+            chat_template (ChatPromptTemplate): Template for formatting the prompt
+            args (dict[str, Any]): Arguments to fill in the template
+
+        Returns:
+            ChatHistory: Generated chat history
+        """
         messages = chat_template.format_messages(**args)
         response = await self.llm.ainvoke(messages)
         return ChatHistory([messages, response])
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Cleanup the model by freeing up resources."""
-
         # Delete image
         logger.debug(
             "Ollama models will be deleted on demand and therefore this step is skipped!"
@@ -185,8 +220,11 @@ class vLLMModel(LLM):
 
     @property
     def name(self) -> str:
-        """Get the name of the model."""
+        """Get the name of the model.
 
+        Returns:
+            str: The name of the model
+        """
         return self.model
 
 
@@ -221,6 +259,7 @@ class OllamaModel(LLM):
 
         Args:
             model (str): Name/path of the Ollama model to use
+            base_url (str): Base URL for the Ollama server
         """
         self.model = model
         self.base_url = base_url
@@ -228,7 +267,14 @@ class OllamaModel(LLM):
         self.ollama_client = ollama.Client(base_url)
 
     def load(self, stream: bool = False) -> LoadingStatus | Iterator[LoadingStatus]:
-        """Ensure that the model is pulled from ollama and ready for use."""
+        """Ensure that the model is pulled from ollama and ready for use.
+
+        Args:
+            stream (bool): Whether to stream the loading status
+
+        Returns:
+            LoadingStatus | Iterator[LoadingStatus]: Loading status or iterator of loading statuses
+        """
         logger.debug(f"Pulling Ollama model: {self.model}")
 
         return self._pull_model(stream)
@@ -236,7 +282,14 @@ class OllamaModel(LLM):
     def _pull_model(
         self, stream: bool = False
     ) -> LoadingStatus | Iterator[LoadingStatus]:
-        """Pull the model from Ollama server."""
+        """Pull the model from Ollama server.
+
+        Args:
+            stream (bool): Whether to stream the loading status
+
+        Returns:
+            LoadingStatus | Iterator[LoadingStatus]: Loading status or iterator of loading statuses
+        """
         try:
             if stream:
                 return self._stream_pull_model()
@@ -247,7 +300,11 @@ class OllamaModel(LLM):
             return self._handle_pull_error(e, stream)
 
     def _stream_pull_model(self) -> Iterator[LoadingStatus]:
-        """Stream the model pulling process."""
+        """Stream the model pulling process.
+
+        Returns:
+            Iterator[LoadingStatus]: Iterator of loading statuses
+        """
         for status in self.ollama_client.pull(self.model, stream=True):
             has_progress = status.total is not None and status.completed is not None
             if has_progress:
@@ -259,7 +316,18 @@ class OllamaModel(LLM):
     def _handle_pull_error(
         self, error: Exception, stream: bool
     ) -> LoadingStatus | Iterator[LoadingStatus]:
-        """Handle errors during model pulling."""
+        """Handle errors during model pulling.
+
+        Args:
+            error (Exception): The error that occurred
+            stream (bool): Whether to stream the loading status
+
+        Returns:
+            LoadingStatus | Iterator[LoadingStatus]: Loading status or iterator of loading statuses
+
+        Raises:
+            Exception: If the error cannot be handled
+        """
         logger.debug(f"Error pulling Ollama model: {error}")
 
         if "no space left on device" in str(error):
@@ -276,25 +344,40 @@ class OllamaModel(LLM):
         for model in list_response.models:
             self.ollama_client.delete(model.model)
 
-    def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
-        """Generate text based on the provided chat template and arguments."""
+    def generate(
+        self, chat_template: ChatPromptTemplate, args: dict[str, Any]
+    ) -> ChatHistory:
+        """Generate text based on the provided chat template and arguments.
 
+        Args:
+            chat_template (ChatPromptTemplate): Template for formatting the prompt
+            args (dict[str, Any]): Arguments to fill in the template
+
+        Returns:
+            ChatHistory: Generated chat history
+        """
         messages = chat_template.format_messages(**args)
         response = self.llm.invoke(messages)
         return ChatHistory([messages, response])
 
     async def agenerate(
-        self, chat_template: ChatPromptTemplate, args: dict
+        self, chat_template: ChatPromptTemplate, args: dict[str, Any]
     ) -> ChatHistory:
-        """Generate text based on the provided chat template and arguments."""
+        """Generate text asynchronously based on the provided chat template and arguments.
 
+        Args:
+            chat_template (ChatPromptTemplate): Template for formatting the prompt
+            args (dict[str, Any]): Arguments to fill in the template
+
+        Returns:
+            ChatHistory: Generated chat history
+        """
         messages = chat_template.format_messages(**args)
         response = await self.llm.ainvoke(messages)
         return ChatHistory([messages, response])
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Cleanup the model by freeing up resources."""
-
         # Delete image
         logger.debug(
             "Ollama models will be deleted on demand and therefore this step is skipped!"
@@ -302,8 +385,11 @@ class OllamaModel(LLM):
 
     @property
     def name(self) -> str:
-        """Get the name of the model."""
+        """Get the name of the model.
 
+        Returns:
+            str: The name of the model
+        """
         return self.model
 
 
