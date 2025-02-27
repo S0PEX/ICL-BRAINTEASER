@@ -134,7 +134,7 @@ class Executor:
         pbar: tqdm,
         model: LLM,
         dataset: Dataset,
-        prompt_template: ChatPromptTemplate | Callable,
+        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
         args_generator: Callable,
         checkpoints_dir: Path,
         create_checkpoints: bool,
@@ -329,7 +329,7 @@ class Executor:
     async def execute(
         self,
         input_data: Dataset | list[Dataset],
-        prompt_template: ChatPromptTemplate | Callable,
+        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
         args_generator: Callable,
         run_name: str | None = None,
         file_name_suffix: str | None = None,
@@ -355,7 +355,7 @@ class Executor:
     async def aexecute(
         self,
         input_data: Dataset | list[Dataset],
-        prompt_template: ChatPromptTemplate | Callable,
+        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
         args_generator: Callable,
         run_name: str | None = None,
         file_name_suffix: str | None = None,
@@ -381,7 +381,7 @@ class Executor:
     async def _execute_base(
         self,
         input_data: Dataset | list[Dataset],
-        prompt_template: ChatPromptTemplate | Callable,
+        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
         args_generator: Callable,
         run_name: str | None = None,
         file_name_suffix: str | None = None,
