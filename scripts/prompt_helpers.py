@@ -10,31 +10,31 @@ from langchain.prompts.chat import (
 # System message templates (priming)
 system_templates: dict[str, str] = {
     "default": "You are an AI assistant.",
-    "default_improved": "You are an AI assistant specialized in lateral thinking puzzles and brain teasers. Analyze each question carefully to find the correct answer among the choices.",
-    "step_by_step": "You are a methodical problem solver. For each lateral thinking question, think step by step: first analyze the problem statement, then evaluate each choice systematically, and finally select the single best answer. Show your reasoning process clearly.",
+    "default-improved": "You are an AI assistant specialized in lateral thinking puzzles and brain teasers. Analyze each question carefully to find the correct answer among the choices.",
+    "step-by-step": "You are a methodical problem solver. For each lateral thinking question, think step by step: first analyze the problem statement, then evaluate each choice systematically, and finally select the single best answer. Show your reasoning process clearly.",
     "creative": "You are a creative puzzle solver. Think step by step beyond conventional reasoning when examining these lateral thinking questions. Consider unexpected connections before selecting your answer.",
     "elimination": "You are a strategic puzzle solver. For each lateral thinking question, think step by step and methodically eliminate implausible choices until you identify the single correct answer.",
     "metaphor": "You are skilled in abstract reasoning. Think step by step to consider hidden meanings and metaphorical interpretations in these brain teasers before selecting the most appropriate choice.",
     "confidence": "You are a precise decision-maker. Think step by step to evaluate each option's likelihood of being correct for these lateral thinking questions and select the single best answer.",
-    "perspective_shift": "You are an adaptive thinker. Think step by step to approach each brain teaser from multiple perspectives, challenging your initial assumptions before selecting the correct choice.",
-    "common_sense": "You are balanced in logic and practicality when solving puzzles. Think step by step, applying careful reasoning while considering practical implications to find the correct answer.",
-    "assumption_challenge": "You are skilled at identifying hidden assumptions in puzzles. Think step by step to question the premises behind each lateral thinking question before selecting your answer.",
-    "pattern_matching": "You excel at recognizing patterns in complex problems. Think step by step to identify logical structures and connections in these brain teasers to determine the correct choice.",
+    "perspective-shift": "You are an adaptive thinker. Think step by step to approach each brain teaser from multiple perspectives, challenging your initial assumptions before selecting the correct choice.",
+    "common-sense": "You are balanced in logic and practicality when solving puzzles. Think step by step, applying careful reasoning while considering practical implications to find the correct answer.",
+    "assumption-challenge": "You are skilled at identifying hidden assumptions in puzzles. Think step by step to question the premises behind each lateral thinking question before selecting your answer.",
+    "pattern-matching": "You excel at recognizing patterns in complex problems. Think step by step to identify logical structures and connections in these brain teasers to determine the correct choice.",
     "intuitive": "You combine quick intuition with careful verification. For each puzzle, think step by step by forming an initial impression, then analytically confirm whether your instinct leads to the correct answer.",
 }
 
 TemplateNameType = Literal[
     "default",
-    "default_improved",
-    "step_by_step",
+    "default-improved",
+    "step-by-step",
     "creative",
     "elimination",
     "metaphor",
     "confidence",
-    "perspective_shift",
-    "common_sense",
-    "assumption_challenge",
-    "pattern_matching",
+    "perspective-shift",
+    "common-sense",
+    "assumption-challenge",
+    "pattern-matching",
     "intuitive",
 ]
 

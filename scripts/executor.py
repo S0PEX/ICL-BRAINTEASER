@@ -135,7 +135,8 @@ class Executor:
         pbar: tqdm,
         model: LLM,
         dataset: Dataset,
-        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
+        prompt_template: ChatPromptTemplate
+        | Callable[[str, Dataset], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         checkpoints_dir: Path,
         create_checkpoints: bool,
@@ -160,7 +161,7 @@ class Executor:
         try:
             # Prepare template - handle callable template case
             template = (
-                prompt_template(model.name)
+                prompt_template(model.name, dataset)
                 if callable(prompt_template)
                 else prompt_template
             )
@@ -347,7 +348,7 @@ class Executor:
     async def execute(
         self,
         input_data: list[Dataset],
-        prompt_template: Callable[[str], ChatPromptTemplate],
+        prompt_template: Callable[[str, Dataset], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
@@ -360,7 +361,8 @@ class Executor:
     async def execute(
         self,
         input_data: Dataset | list[Dataset],
-        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
+        prompt_template: ChatPromptTemplate
+        | Callable[[str, Dataset], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
@@ -401,7 +403,7 @@ class Executor:
     async def aexecute(
         self,
         input_data: list[Dataset],
-        prompt_template: Callable[[str], ChatPromptTemplate],
+        prompt_template: Callable[[str, Dataset], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
@@ -414,7 +416,8 @@ class Executor:
     async def aexecute(
         self,
         input_data: Dataset | list[Dataset],
-        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
+        prompt_template: ChatPromptTemplate
+        | Callable[[str, Dataset], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
@@ -440,7 +443,8 @@ class Executor:
     async def _execute_base(
         self,
         input_data: Dataset | list[Dataset],
-        prompt_template: ChatPromptTemplate | Callable[[str], ChatPromptTemplate],
+        prompt_template: ChatPromptTemplate
+        | Callable[[str, Dataset], ChatPromptTemplate],
         args_generator: Callable[[RiddleQuestion], dict[str, Any]],
         run_name: str | None = None,
         file_name_suffix: str | None = None,
