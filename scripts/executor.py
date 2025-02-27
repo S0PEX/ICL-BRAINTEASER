@@ -144,28 +144,17 @@ class Executor:
         is_async: bool = True,
     ) -> list[ExecutionResult]:
         """Process a single model with riddles from a dataset"""
-        checkpoint_path = (
-            checkpoints_dir
-            / f"{dataset.name}_{model.name}{'_' + file_name_suffix if file_name_suffix else ''}.pkl"
+        checkpoint_path = self._get_checkpoint_path(
+            dataset, model, file_name_suffix, checkpoints_dir
         )
 
         # Try to load from checkpoint first if enabled
         if resume_from_checkpoint and checkpoint_path.exists():
-            with open(checkpoint_path, "rb") as f:
-                logger.debug(f"Loading cached results from {checkpoint_path}")
-                loaded_results = pickle.load(f)
-                riddles_len = len(dataset.riddles)
-                pbar.update(riddles_len)
-                pbar.set_postfix(
-                    {
-                        "Dataset": dataset.name,
-                        "Model": model.name,
-                        "Progress": f"{riddles_len}/{riddles_len} (cached)",
-                    }
-                )
-                return loaded_results
+            return self._load_from_checkpoint(checkpoint_path, dataset, model, pbar)
 
-        model.load()
+        # Load the model
+        self._load_model(model, dataset, pbar)
+
         riddles = dataset.riddles
         try:
             # Prepare template - handle callable template case
@@ -178,71 +167,164 @@ class Executor:
             results = []
             riddles_len = len(riddles)
 
-            pbar.set_postfix(
-                {
-                    "Dataset": dataset.name,
-                    "Model": model.name,
-                    "Progress": f"{0}/{riddles_len}",
-                }
-            )
+            # Initialize progress display
+            self._update_progress(pbar, dataset.name, model.name, 0, riddles_len)
 
+            # Process riddles
             if is_async:
-                # Process in batches
-                batches = list(batched(riddles, batch_size))
-                for i, chunk in enumerate(batches):
-                    tasks = [
-                        self._execute_riddle(
-                            model, riddle, template, args_generator, True
-                        )
-                        for riddle in chunk
-                    ]
-                    chunk_results = await asyncio.gather(*tasks)
-                    results.extend(chunk_results)
-
-                    # Update progress bar
-                    pbar.set_postfix(
-                        {
-                            "Dataset": dataset.name,
-                            "Model": model.name,
-                            "Progress": f"{min((i + 1) * batch_size, riddles_len)}/{riddles_len}",
-                        }
-                    )
-                    pbar.update(len(chunk))
+                results = await self._process_riddles_async(
+                    model, riddles, template, args_generator, batch_size, dataset, pbar
+                )
             else:
-                # Process sequentially
-                for i, riddle in enumerate(riddles):
-                    result = await self._execute_riddle(
-                        model, riddle, template, args_generator, False
-                    )
-                    results.append(result)
-
-                    # Update progress bar
-                    pbar.set_postfix(
-                        {
-                            "Dataset": dataset.name,
-                            "Model": model.name,
-                            "Progress": f"{i + 1}/{riddles_len}",
-                        }
-                    )
-                    pbar.update(1)
+                results = await self._process_riddles_sequential(
+                    model, riddles, template, args_generator, dataset, pbar
+                )
 
             # Save checkpoint if enabled
             if create_checkpoints:
-                checkpoints_dir.mkdir(parents=True, exist_ok=True)
-                with open(checkpoint_path, "wb") as f:
-                    pickle.dump(results, f)
-                logger.debug(f"Saved checkpoint to {checkpoint_path}")
-                pbar.set_postfix(
-                    {
-                        "Dataset": dataset.name,
-                        "Model": model.name,
-                        "Progress": f"{riddles_len}/{riddles_len} (done)",
-                    }
-                )
+                self._save_checkpoint(results, checkpoint_path, dataset, model, pbar)
 
             return results
         finally:
             model.cleanup()
+
+    def _get_checkpoint_path(
+        self,
+        dataset: Dataset,
+        model: LLM,
+        file_name_suffix: str | None,
+        checkpoints_dir: Path,
+    ) -> Path:
+        """Get the path for the checkpoint file"""
+        return (
+            checkpoints_dir
+            / f"{dataset.name}_{model.name}{'_' + file_name_suffix if file_name_suffix else ''}.pkl"
+        )
+
+    def _load_from_checkpoint(
+        self, checkpoint_path: Path, dataset: Dataset, model: LLM, pbar: tqdm
+    ) -> list[ExecutionResult]:
+        """Load results from an existing checkpoint"""
+        with open(checkpoint_path, "rb") as f:
+            logger.debug(f"Loading cached results from {checkpoint_path}")
+            loaded_results = pickle.load(f)
+            riddles_len = len(dataset.riddles)
+            pbar.update(riddles_len)
+            pbar.set_postfix(
+                {
+                    "Dataset": dataset.name,
+                    "Model": model.name,
+                    "Progress": f"{riddles_len}/{riddles_len} (cached)",
+                }
+            )
+            return loaded_results
+
+    def _load_model(self, model: LLM, dataset: Dataset, pbar: tqdm) -> None:
+        """Load the model and update progress bar during loading"""
+        for loading_status in model.load(stream=True):
+            pbar.set_postfix(
+                {
+                    "Dataset": dataset.name,
+                    "Model": model.name,
+                    "Progress": f"Loading model: {loading_status.message} ({loading_status.progress}%)"
+                    if loading_status.progress is not None
+                    else f"Loading model: {loading_status.message}",
+                }
+            )
+
+    def _update_progress(
+        self,
+        pbar: tqdm,
+        dataset_name: str,
+        model_name: str,
+        current: int,
+        total: int,
+        status: str = "",
+    ) -> None:
+        """Update the progress bar with current status"""
+        pbar.set_postfix(
+            {
+                "Dataset": dataset_name,
+                "Model": model_name,
+                "Progress": f"{current}/{total}{' (' + status + ')' if status else ''}",
+            }
+        )
+
+    async def _process_riddles_async(
+        self,
+        model: LLM,
+        riddles: list[RiddleQuestion],
+        template: ChatPromptTemplate,
+        args_generator: Callable,
+        batch_size: int,
+        dataset: Dataset,
+        pbar: tqdm,
+    ) -> list[ExecutionResult]:
+        """Process riddles in parallel batches"""
+        results = []
+        riddles_len = len(riddles)
+        batches = list(batched(riddles, batch_size))
+
+        for i, chunk in enumerate(batches):
+            tasks = [
+                self._execute_riddle(model, riddle, template, args_generator, True)
+                for riddle in chunk
+            ]
+            chunk_results = await asyncio.gather(*tasks)
+            results.extend(chunk_results)
+
+            # Update progress bar
+            current_progress = min((i + 1) * batch_size, riddles_len)
+            self._update_progress(
+                pbar, dataset.name, model.name, current_progress, riddles_len
+            )
+            pbar.update(len(chunk))
+
+        return results
+
+    async def _process_riddles_sequential(
+        self,
+        model: LLM,
+        riddles: list[RiddleQuestion],
+        template: ChatPromptTemplate,
+        args_generator: Callable,
+        dataset: Dataset,
+        pbar: tqdm,
+    ) -> list[ExecutionResult]:
+        """Process riddles sequentially"""
+        results = []
+        riddles_len = len(riddles)
+
+        for i, riddle in enumerate(riddles):
+            result = await self._execute_riddle(
+                model, riddle, template, args_generator, False
+            )
+            results.append(result)
+
+            # Update progress bar
+            self._update_progress(pbar, dataset.name, model.name, i + 1, riddles_len)
+            pbar.update(1)
+
+        return results
+
+    def _save_checkpoint(
+        self,
+        results: list[ExecutionResult],
+        checkpoint_path: Path,
+        dataset: Dataset,
+        model: LLM,
+        pbar: tqdm,
+    ) -> None:
+        """Save results to a checkpoint file"""
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(checkpoint_path, "wb") as f:
+            pickle.dump(results, f)
+        logger.debug(f"Saved checkpoint to {checkpoint_path}")
+
+        riddles_len = len(dataset.riddles)
+        self._update_progress(
+            pbar, dataset.name, model.name, riddles_len, riddles_len, "done"
+        )
 
     async def execute(
         self,
@@ -340,9 +422,20 @@ class Executor:
             if resume_from_checkpoint and results_path.exists():
                 logger.debug(f"Loading cached results from {results_path}")
                 with open(results_path, "rb") as f:
-                    wrapped_results = pickle.load(f)
+                    wrapped_results: WrappedResults = pickle.load(f)
+
                 pbar.update(total_riddles)
-                pbar.set_postfix({"Status": f"Loaded from cache: {results_path.name}"})
+
+                # Show progress for the last dataset and model in the results
+                pbar.set_postfix(
+                    {
+                        "Dataset": list(wrapped_results.results.keys())[-1],
+                        "Model": list(
+                            list(wrapped_results.results.values())[-1].keys()
+                        )[-1],
+                        "Progress": f"{total_riddles}/{total_riddles} (cached)",
+                    }
+                )
                 return wrapped_results
 
             # Process all models and datasets

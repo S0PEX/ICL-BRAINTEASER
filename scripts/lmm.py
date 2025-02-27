@@ -1,5 +1,8 @@
 import logging
 from abc import ABC, abstractmethod
+from typing import Literal, overload
+from dataclasses import dataclass
+from collections.abc import Iterator
 
 import ollama
 from langchain_ollama import ChatOllama
@@ -71,11 +74,25 @@ class ChatHistory:
         return self.messages[-1]
 
 
+@dataclass
+class LoadingStatus:
+    """Status of the model loading process"""
+
+    message: str
+    progress: int | None = None
+
+
 class LLM(ABC):
     """Interface for language model implementations"""
 
+    @overload
+    def load(self, stream: Literal[False] = False) -> LoadingStatus: ...
+
+    @overload
+    def load(self, stream: Literal[True] = True) -> Iterator[LoadingStatus]: ...
+
     @abstractmethod
-    def load():
+    def load(self, stream: bool = False) -> LoadingStatus | Iterator[LoadingStatus]:
         """Setup the model and any required resources."""
         raise NotImplementedError
 
@@ -138,8 +155,9 @@ class vLLMModel(LLM):
             api_key="token-abc123",
         )
 
-    def load(self):
+    def load(self, stream: bool = False) -> LoadingStatus | Iterator[LoadingStatus]:
         """Ensure that the model is pulled from ollama and ready for use."""
+        return LoadingStatus(message="Model loaded successfully")
 
     def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
         """Generate text based on the provided chat template and arguments."""
@@ -209,24 +227,54 @@ class OllamaModel(LLM):
         self.llm = ChatOllama(model=model, base_url=base_url)
         self.ollama_client = ollama.Client(base_url)
 
-    def load(self):
+    def load(self, stream: bool = False) -> LoadingStatus | Iterator[LoadingStatus]:
         """Ensure that the model is pulled from ollama and ready for use."""
-
-        # Pull image
         logger.debug(f"Pulling Ollama model: {self.model}")
+
+        return self._pull_model(stream)
+
+    def _pull_model(
+        self, stream: bool = False
+    ) -> LoadingStatus | Iterator[LoadingStatus]:
+        """Pull the model from Ollama server."""
         try:
-            self.ollama_client.pull(self.model)
-        except Exception as e:
-            logger.error(f"Error pulling Ollama model: {e}")
-            if "no space left on device" in str(e):
-                logger.info("Deleting all ollama models to free up space")
-                list_response = self.ollama_client.list()
-                models = list_response.models
-                for model in models:
-                    self.ollama_client.delete(model.model)
-                self.ollama_client.pull(self.model)
+            if stream:
+                return self._stream_pull_model()
             else:
-                raise e
+                status = self.ollama_client.pull(self.model, stream=False)
+                return LoadingStatus(message=status.status)
+        except Exception as e:
+            return self._handle_pull_error(e, stream)
+
+    def _stream_pull_model(self) -> Iterator[LoadingStatus]:
+        """Stream the model pulling process."""
+        for status in self.ollama_client.pull(self.model, stream=True):
+            has_progress = status.total is not None and status.completed is not None
+            if has_progress:
+                percentage = int(status.completed / status.total * 100)
+                yield LoadingStatus(message=status.status, progress=percentage)
+            else:
+                yield LoadingStatus(message=status.status)
+
+    def _handle_pull_error(
+        self, error: Exception, stream: bool
+    ) -> LoadingStatus | Iterator[LoadingStatus]:
+        """Handle errors during model pulling."""
+        logger.debug(f"Error pulling Ollama model: {error}")
+
+        if "no space left on device" in str(error):
+            logger.debug("Deleting all ollama models to free up space")
+            self._free_disk_space()
+            return self._pull_model(stream)
+        else:
+            logger.error(f"Error pulling Ollama model: {error}")
+            raise error
+
+    def _free_disk_space(self) -> None:
+        """Delete all Ollama models to free up disk space."""
+        list_response = self.ollama_client.list()
+        for model in list_response.models:
+            self.ollama_client.delete(model.model)
 
     def generate(self, chat_template: ChatPromptTemplate, args: dict) -> ChatHistory:
         """Generate text based on the provided chat template and arguments."""
