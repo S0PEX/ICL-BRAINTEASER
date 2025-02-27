@@ -473,4 +473,5 @@ class Executor:
                 with open(results_path, "wb") as f:
                     pickle.dump(wrapped_results, f)
 
+            logger.info(f"Execution '{run_name}{suffix_info}' completed successfully.")
             return wrapped_results
