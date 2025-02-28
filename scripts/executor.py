@@ -127,7 +127,8 @@ class Executor:
         return (
             sanitized_name,
             run_dir / "checkpoints",
-            run_dir / f"{sanitized_name}_{file_name_suffix}_results.pkl",
+            run_dir
+            / f"{sanitized_name}{f'_{file_name_suffix}' if file_name_suffix else ''}_results.pkl",
         )
 
     async def _process_model(
