@@ -1,11 +1,18 @@
 import textwrap
 from typing import Literal
+from collections.abc import Callable
 
 from langchain.prompts.chat import (
     ChatPromptTemplate,
     HumanMessagePromptTemplate,
     SystemMessagePromptTemplate,
 )
+from langchain_core.prompts import (
+    FewShotChatMessagePromptTemplate,
+)
+
+from scripts.dataset import RiddleQuestion
+from scripts.executor import Dataset
 
 # System message templates (priming)
 system_templates: dict[str, str] = {
@@ -66,10 +73,89 @@ def get_user_prompt() -> HumanMessagePromptTemplate:
 def create_prompt_template(
     system_prompt_template_name: TemplateNameType = "default",
 ) -> ChatPromptTemplate:
+    """
+    Creates a chat prompt template with system and user prompts.
+
+    Args:
+        system_prompt_template_name: The name of the system prompt template to use.
+            Defaults to "default".
+
+    Returns:
+        A ChatPromptTemplate containing both system and user prompts.
+    """
     system_prompt_template = get_system_prompt(system_prompt_template_name)
     user_prompt_template = get_user_prompt()
     chat_prompt_template = ChatPromptTemplate.from_messages(
         [system_prompt_template, user_prompt_template]
+    )
+
+    return chat_prompt_template
+
+
+def get_few_shot_dataset(
+    dataset: Dataset, number_of_shots: int = 4
+) -> tuple[list[RiddleQuestion], list[RiddleQuestion]]:
+    """
+    Splits a dataset into examples for few-shot learning and riddles to solve.
+
+    Args:
+        dataset: The dataset containing riddles.
+        number_of_shots: Number of examples to use for few-shot learning. Defaults to 4.
+
+    Returns:
+        A tuple containing (examples_for_few_shot_learning, riddles_to_solve).
+    """
+    riddles_as_examples = dataset.riddles[:number_of_shots]
+    riddles_to_solve = dataset.riddles[number_of_shots:]
+    return (riddles_as_examples, riddles_to_solve)
+
+
+def get_few_shot_chat_template(
+    examples: list[RiddleQuestion],
+    args_generator: Callable[[RiddleQuestion], dict],
+    system_prompt_template_name: TemplateNameType,
+    number_of_shots: int = 4,
+) -> ChatPromptTemplate:
+    """
+    Creates a few-shot learning chat template with examples and returns riddles to solve.
+
+    Args:
+        examples: The list of examples to use for few-shot learning.
+        args_generator: Function to convert a riddle question into template arguments.
+        system_prompt_template_name: The name of the system prompt template to use.
+        number_of_shots: Number of examples to use for few-shot learning. Defaults to 4.
+
+    Returns:
+        A ChatPromptTemplate containing the few-shot learning template.
+    """
+
+    if len(examples) < number_of_shots:
+        raise ValueError(
+            f"Number of examples ({len(examples)}) must be greater than or equal to the number of shots ({number_of_shots})."
+        )
+
+    # Create example prompt template for few-shot learning
+    example_prompt = ChatPromptTemplate.from_messages(
+        [
+            get_user_prompt(),
+            ("ai", "{answer}"),
+        ]
+    )
+
+    riddles_as_examples = examples[0:number_of_shots]
+    # Create few-shot prompt with examples
+    few_shot_prompt = FewShotChatMessagePromptTemplate(
+        example_prompt=example_prompt,
+        examples=[args_generator(example) for example in riddles_as_examples],
+    )
+
+    # Combine system prompt, few-shot examples, and user prompt
+    chat_prompt_template = ChatPromptTemplate.from_messages(
+        [
+            get_system_prompt(system_prompt_template_name),
+            few_shot_prompt,
+            get_user_prompt(),
+        ]
     )
 
     return chat_prompt_template
