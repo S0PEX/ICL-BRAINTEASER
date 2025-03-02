@@ -241,9 +241,7 @@ class vLLMModel(LLM):
 class OllamaModelBuilder:
     """Builder class for creating OllamaModel instances"""
 
-    def __init__(
-        self, base_url: str = "http://localhost:11434", temperature: float | None = None
-    ):
+    def __init__(self, base_url: str | None = None, temperature: float | None = None):
         """Initialize the builder with base URL.
 
         Args:
@@ -294,7 +292,7 @@ class OllamaModel(LLM):
     def __init__(
         self,
         model: str,
-        base_url: str = "http://localhost:11434",
+        base_url: str | None = None,
         temperature: float | None = None,
     ):
         """Initialize the language model with the specified model name and device
