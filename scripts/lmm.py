@@ -151,6 +151,16 @@ class LLM(ABC):
         """
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def temperature(self) -> float:
+        """Get the temperature of the model.
+
+        Returns:
+            float: The temperature of the model
+        """
+        raise NotImplementedError
+
 
 class vLLMModel(LLM):
     """Language model class that wraps Ollama models for text generation"""
@@ -231,13 +241,38 @@ class vLLMModel(LLM):
 class OllamaModelBuilder:
     """Builder class for creating OllamaModel instances"""
 
-    def __init__(self, base_url: str = "http://localhost:11434"):
+    def __init__(
+        self, base_url: str = "http://localhost:11434", temperature: float | None = None
+    ):
         """Initialize the builder with base URL.
+
+        Args:
+            base_url (str): Base URL for the Ollama server
+            temperature (float | None): Temperature for the model
+        """
+        self.base_url = base_url
+        self.temperature = temperature
+
+    def set_base_url(self, base_url: str):
+        """Set the base URL for the Ollama server.
 
         Args:
             base_url (str): Base URL for the Ollama server
         """
         self.base_url = base_url
+        return self
+
+    def set_temperature(self, temperature: float):
+        """Set the temperature for the model.
+
+        Args:
+            temperature (float): Temperature for the model
+
+        Returns:
+            OllamaModelBuilder: Self instance
+        """
+        self.temperature = temperature
+        return self
 
     def build_model(self, model_name: str) -> LLM:
         """Build an OllamaModel instance with the specified model name.
@@ -248,23 +283,40 @@ class OllamaModelBuilder:
         Returns:
             LLM: Configured OllamaModel instance
         """
-        return OllamaModel(model=model_name, base_url=self.base_url)
+        return OllamaModel(
+            model=model_name, base_url=self.base_url, temperature=self.temperature
+        )
 
 
 class OllamaModel(LLM):
     """Language model class that wraps Ollama models for text generation"""
 
-    def __init__(self, model: str, base_url: str = "http://localhost:11434"):
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://localhost:11434",
+        temperature: float | None = None,
+    ):
         """Initialize the language model with the specified model name and device
 
         Args:
             model (str): Name/path of the Ollama model to use
             base_url (str): Base URL for the Ollama server
+            temperature (float | None): Temperature for the model
         """
         self.model = model
         self.base_url = base_url
-        self.llm = ChatOllama(model=model, base_url=base_url)
+        self.llm = ChatOllama(model=model, base_url=base_url, temperature=temperature)
         self.ollama_client = ollama.Client(base_url)
+
+    @property
+    def temperature(self) -> float:
+        """Get the temperature of the model.
+
+        Returns:
+            float: The temperature of the model
+        """
+        return self.llm.temperature
 
     def load(self, stream: bool = False) -> LoadingStatus | Iterator[LoadingStatus]:
         """Ensure that the model is pulled from ollama and ready for use.
