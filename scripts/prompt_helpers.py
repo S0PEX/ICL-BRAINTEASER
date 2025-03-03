@@ -1,3 +1,4 @@
+import random
 import textwrap
 from typing import Literal
 from collections.abc import Callable
@@ -142,7 +143,27 @@ def get_few_shot_chat_template(
         ]
     )
 
-    riddles_as_examples = examples[0:number_of_shots]
+    # Try to get unique examples by label first
+    unique_by_label = {}
+    for example in examples:
+        if example.label not in unique_by_label:
+            unique_by_label[example.label] = example
+
+    # If we have enough unique examples, use them
+    if len(unique_by_label) >= number_of_shots:
+        riddles_as_examples = list(unique_by_label.values())[:number_of_shots]
+    else:
+        # Not enough unique labels, so take all unique examples we have
+        unique_examples = list(unique_by_label.values())
+        # Then randomly sample from remaining examples to reach the desired number
+        # Exclude examples that are already in our unique set
+        remaining_examples = [ex for ex in examples if ex not in unique_examples]
+        random.shuffle(remaining_examples)
+        riddles_as_examples = (
+            unique_examples
+            + remaining_examples[: number_of_shots - len(unique_examples)]
+        )
+
     # Create few-shot prompt with examples
     few_shot_prompt = FewShotChatMessagePromptTemplate(
         example_prompt=example_prompt,
