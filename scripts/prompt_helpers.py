@@ -59,7 +59,7 @@ def get_system_prompt(template_name: TemplateNameType) -> SystemMessagePromptTem
 
 def get_user_prompt() -> HumanMessagePromptTemplate:
     prompt = textwrap.dedent("""
-    Please select the best answer for the question. Each question has only one correct answer, including the option 'none of the above'. Your answer should only include the choice:
+    Please select the best answer for the question. Each question has only one correct answer, including the choice 'None of above'. Your answer should only include the choice:
 
     Question: {question}
     Choice:
