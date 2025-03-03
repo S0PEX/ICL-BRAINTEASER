@@ -2,7 +2,7 @@
 
 ## Project Description
 
-This project is part of the In-Context Learning (ICL) course at the University of Cologne. The focus of this project is to experiment with and compare the performance of [**LLaMA 3.1 & 3.2**](https://llama.meta.com/), [**Phi-3.5-MoE**](https://huggingface.co/microsoft/Phi-3.5-MoE-instruct), and [**Deepseek R1**](https://huggingface.co/deepseek-ai/DeepSeek-R1) models on [**SemEval 2024 Task BRAINTEASER: A Novel Task Defying Common Sense**](https://brainteasersem.github.io/).
+This project is part of the In-Context Learning (ICL) course at the University of Cologne. The focus of this project is to experiment with and compare the performance of [**Llama 3**](https://ollama.com/library/llama3), [**Phi**](https://ollama.com/library/phi), [**Qwen**](https://ollama.com/library/qwen), [**Gemma**](https://ollama.com/library/gemma), and [**Mistral**](https://ollama.com/library/mistral) models on [**SemEval 2024 Task BRAINTEASER: A Novel Task Defying Common Sense**](https://brainteasersem.github.io/).
 
 ### Task Overview
 
@@ -20,7 +20,7 @@ To run this project, you need the following:
 - Python 3.10 or higher
 - Jupyter Notebook
 - Required Python libraries listed in `requirements.txt`
-- Access to the LLaMA 3.1, LLaMA 3.2, Phi-3.5-MoE, and Deepseek R1 models (instructions provided below)
+- Ollama installed for running the models (instructions provided below)
 
 ## Getting Started
 
@@ -28,42 +28,56 @@ To run this project, you need the following:
 
 1. Clone the repository and navigate to the project directory:
 
-    ```bash
-    git clone https://github.com/S0PEX/ICL-BRAINTEASER.git
-    cd ICL-BRAINTEASER
-    ```
+   ```bash
+   git clone https://github.com/S0PEX/ICL-BRAINTEASER.git
+   cd ICL-BRAINTEASER
+   ```
 
 2. Create a virtual environment and activate it:
 
-    - On macOS/Linux:
+   - On macOS/Linux:
 
-      ```bash
-      python3 -m venv venv
-      source venv/bin/activate
-      ```
+     ```bash
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
 
-    - On Windows:
+   - On Windows:
 
-      ```bash
-      python -m venv venv
-      venv\Scripts\activate
-      ```
+     ```bash
+     python -m venv venv
+     venv\Scripts\activate
+     ```
 
 3. Install the required dependencies:
 
-    ```bash
-    pip install -r requirements.txt
-    ```
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ### 2. Download the Models
 
-- **LLaMA 3.1 & 3.2**: Follow the instructions provided [here](https://huggingface.co/meta-llama) to download and set up the LLaMA models
-- **Phi-3.5-MoE**: Available at [Hugging Face](https://huggingface.co/microsoft/Phi-3.5-MoE-instruct)
-- **Deepseek R1**: Available at [Hugging Face](https://huggingface.co/deepseek-ai/DeepSeek-R1)
+All experiments are run using Ollama's compatible API. Ollama is a platform that provides a user-friendly interface for accessing and running various language models. To set up Ollama and download these models:
+
+1. **Install Ollama**: Follow the instructions on [ollama.com](https://ollama.com/) to install Ollama on your machine. This typically involves downloading the installer for your operating system and following the setup instructions.
+
+**Note**: There is no need to manually pull the models, as the executor will take care of it automatically.
+
+Current the following models are used:
+
+- Llama 3.1 (8B)
+- Llama 3.2 (1B, 3B)
+- Phi 3.5 (3.8B)
+- Phi 4 (14B)
+- Qwen 2.5 (0.5B, 1.5B, 3B, 7B, 14B, 32B)
+- Gemma 2 (2B, 9B, 27B)
+- Mistral Nemo (12B)
 
 ### 3. Prepare the Data
 
-The dataset for this project is available through the [BRAINTEASER Codalab Competition](https://brainteasersem.github.io/). Follow these steps to access and prepare the data:
+The dataset for this project is available through the [BRAINTEASER Codalab Competition](https://brainteasersem.github.io/).
+
+Follow these steps to access and prepare the data:
 
 1. Visit the [BRAINTEASER competition page](https://brainteasersem.github.io/#data)
 2. Register for the competition and download the dataset
@@ -71,36 +85,13 @@ The dataset for this project is available through the [BRAINTEASER Codalab Compe
 
 ### 4. Run Jupyter Notebooks
 
-All experiments are conducted in Jupyter Notebooks. To start the notebook environment, run:
+All experiments are conducted in Jupyter Notebooks. We use Ollama to access the models as it provides an OpenAPI compatible API and integrates with LangChain nicely. Additionally, Ollama provides quantized variants of the models, offering advantages over alternatives like vLLM in terms of memory efficiency and performance.
 
-```bash
-jupyter notebook
+To run the Ollama server concurrently with the Jupyter Notebook, you can use screen, tmux, or a daemon. Alternatively, you can run it in the background using `&` in Linux.
+
+```shell
+# Serve Ollama API
+$ ollama serve &
+# Start Jupyter Notebook Server
+$ jupyter notebook
 ```
-
-This will open a new browser window where you can navigate to the notebook files and run the experiments.
-
-### 4. Advanced Usage
-
-Performing machine learning experiments can be time-consuming and requires a lot of processing power. To speed up the process, you can use a remote server to offload the processing. The easiest way to do this is to use [**Google Colab**](https://colab.research.google.com/).
-
-A more advanced way to do this is to use a remote server. You can use [**Google Cloud**](https://cloud.google.com/) or [**AWS**](https://aws.amazon.com/) to set up a remote server. Then install the required dependencies and Jupyter Notebook and access it through VSCode or the browser to execute the notebooks. Alternatively, you can extract the notebooks from the Jupyter Notebook and run them in a local Python environment as a script directly.
-
-My current setup is to run the notebooks on a GCP VM and connect to it through VSCode. VSCode will **not** handle uploading the files under `data`, `notebooks`, and `scripts` to the VM. For this you can use `rsync`, `git`, or `scp`. The benefit of using a remote server is that you can leave the VM running and exit from your local VSCode. Therefore, you must spin up a `tmux` or `nohup` session to run the Jupyter Server or the script directly; otherwise, the session will be terminated once you exit from the shell. I prefer to run the Jupyter notebook instead of the script because it is easier to debug and it is more interactive.
-
-Setting up the VM:
-
-```bash
-$ sudo apt-get update && sudo apt-get install -y tmux
-$ sudo apt-get install -y python3-pip
-$ sudo apt-get install -y python3-venv
-$ python3 -m venv venv
-$ source venv/bin/activate
-$ pip install -r requirements.txt
-$ tmux new -s brainteaser
-$ jupyter notebook password # set a password for the jupyter notebook server
-$ jupyter notebook --no-browser --port=8888 --ip=0.0.0.0 # Then use Ctrl+B, D to detach from the session
-```
-
-You can then connect to the Jupyter Notebook server by opening the URL `http://{your_vm_ip}:8888/` in your browser and entering the password you set. Or you can use the VS Code extension to connect to the Jupyter Notebook server.
-
-**Note:** Make sure you open port 8888 in the VM firewall settings and also from the firewall settings in the GCP Console.
