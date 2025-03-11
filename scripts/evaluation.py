@@ -14,6 +14,19 @@ def model_response_to_letter(response: str) -> str:
     Returns:
         str: The extracted answer letter or the original response if no pattern matches
     """
+    return response
+
+
+def model_response_to_letter_postprocessed(response: str) -> str:
+    """
+    Extract the answer letter (A, B, C, D) from various response formats.
+
+    Args:
+        response (str): The raw response string from the model
+
+    Returns:
+        str: The extracted answer letter or the original response if no pattern matches
+    """
     # Strip any leading/trailing whitespace or newlines
     response = response.strip()
 
@@ -62,9 +75,58 @@ def model_response_to_letter(response: str) -> str:
         return response
 
 
-def eval_model_results(
-    results: list[ExecutionResult], debug_print: bool = False
-) -> float:
+def is_model_response_correct(result: ExecutionResult) -> tuple[bool, bool]:
+    """
+    Evaluate the correctness of a model answer by comparing it to the correct answer.
+
+    Args:
+        result (ExecutionResult): The result object containing the model output and the riddle
+
+    Returns:
+        tuple[bool, bool]: Tuple of raw correctness and postprocessed correctness
+    """
+    riddle_answer = result.riddle.answer
+    riddle_answer_letter = string.ascii_uppercase[result.riddle.label]
+    raw_model_answer = result.model_output.get_ai_response().content
+
+    # Raw accuracy check
+    raw_correct = raw_model_answer.startswith(
+        (
+            riddle_answer,  # Starts with the answer (e.g., "The man is a barber")
+            f"({riddle_answer_letter}) {riddle_answer}",  # Starts with the letter in parentheses followed by the answer
+        )
+    )
+    raw_correct = (
+        raw_correct
+        or (
+            # Only for cases where the model answer is shorter than the correct answer
+            len(raw_model_answer) < len(riddle_answer)
+            and raw_model_answer.startswith(
+                (
+                    riddle_answer_letter,  # Starts with the letter (e.g., "A")
+                    f"({riddle_answer_letter})",  # Starts with the letter in parentheses (e.g., "(A)")
+                )
+            )
+        )
+    )
+
+    # Postprocessed accuracy check
+    postprocessed_model_answer = model_response_to_letter_postprocessed(
+        raw_model_answer
+    )
+    postprocessed_correct = (
+        riddle_answer_letter == postprocessed_model_answer
+        or postprocessed_model_answer.startswith(riddle_answer)
+        or raw_correct
+    )
+
+    return raw_correct, postprocessed_correct
+
+
+def calculate_model_accuracy(
+    results: list[ExecutionResult],
+    debug_print: bool = False,
+) -> tuple[float, float, float, float]:
     """
     Evaluate model results by comparing model answers to correct answers.
 
@@ -73,29 +135,75 @@ def eval_model_results(
         debug_print (bool, optional): Whether to print debugging information for incorrect answers. Defaults to False.
 
     Returns:
-        float: Percentage of correct answers (0-100)
+        float: Raw percentage of correct answers (0-100)
+        float: Raw fraction of correct answers (0-1)
+        float: Postprocessed percentage of correct answers (0-100)
+        float: Postprocessed fraction of correct answers (0-1)
     """
-    correct_answers_list = []
+    raw_correct_answers_list = []
+    postprocessed_correct_answers_list = []
 
     for result in results:
         riddle_answer = result.riddle.answer
         riddle_answer_letter = string.ascii_uppercase[result.riddle.label]
-        model_answer = result.model_output.get_ai_response().content
-        model_answer = model_response_to_letter(model_answer)
+        raw_model_answer = result.model_output.get_ai_response().content
 
-        # Check if the answer is correct (either matching the letter or starting with the answer text)
-        correct = riddle_answer_letter == model_answer or model_answer.startswith(
-            riddle_answer
+        # Raw accuracy check
+        raw_correct = raw_model_answer.startswith(
+            (
+                riddle_answer,  # Starts with the answer (e.g., "The man is a barber")
+                f"({riddle_answer_letter}) {riddle_answer}",  # Starts with the letter in parentheses followed by the answer
+            )
         )
+        raw_correct = (
+            raw_correct
+            or (
+                # Only for cases where the model answer is shorter than the correct answer
+                len(raw_model_answer) < len(riddle_answer)
+                and raw_model_answer.startswith(
+                    (
+                        riddle_answer_letter,  # Starts with the letter (e.g., "A")
+                        f"({riddle_answer_letter})",  # Starts with the letter in parentheses (e.g., "(A)")
+                    )
+                )
+            )
+        )
+        raw_correct_answers_list.append(raw_correct)
 
-        if not correct and debug_print:
+        # Postprocessed accuracy check
+        postprocessed_model_answer = model_response_to_letter_postprocessed(
+            raw_model_answer
+        )
+        postprocessed_correct = (
+            riddle_answer_letter == postprocessed_model_answer
+            or postprocessed_model_answer.startswith(riddle_answer)
+            or raw_correct
+        )
+        postprocessed_correct_answers_list.append(postprocessed_correct)
+
+        if not postprocessed_correct and debug_print:
             print(
-                f"Model Answer: {model_answer} | Correct Answer: {riddle_answer_letter}"
+                f"Model Answer: {postprocessed_model_answer} | Correct Answer: {riddle_answer_letter}"
             )
 
-        correct_answers_list.append(correct)
+    # Calculate raw accuracy
+    raw_correct_answers = sum(raw_correct_answers_list)
+    total_answers = len(raw_correct_answers_list)
+    raw_correct_answers_fraction = raw_correct_answers / total_answers
+    raw_correct_answers_percentage = raw_correct_answers_fraction * 100
 
-    correct_answers = sum(correct_answers_list)
-    total_answers = len(correct_answers_list)
-    correct_answers_percentage = correct_answers / total_answers * 100
-    return correct_answers_percentage
+    # Calculate postprocessed accuracy
+    postprocessed_correct_answers = sum(postprocessed_correct_answers_list)
+    postprocessed_correct_answers_fraction = (
+        postprocessed_correct_answers / total_answers
+    )
+    postprocessed_correct_answers_percentage = (
+        postprocessed_correct_answers_fraction * 100
+    )
+
+    return (
+        raw_correct_answers_percentage,
+        raw_correct_answers_fraction,
+        postprocessed_correct_answers_percentage,
+        postprocessed_correct_answers_fraction,
+    )
