@@ -14,6 +14,8 @@ def model_response_to_letter(response: str) -> str:
     Returns:
         str: The extracted answer letter or the original response if no pattern matches
     """
+    # Strip any leading/trailing whitespace or newlines
+    response = response.strip()
     return response
 
 
