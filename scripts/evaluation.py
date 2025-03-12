@@ -90,6 +90,7 @@ def is_model_response_correct(result: ExecutionResult) -> tuple[bool, bool]:
     riddle_answer = result.riddle.answer
     riddle_answer_letter = string.ascii_uppercase[result.riddle.label]
     raw_model_answer = result.model_output.get_ai_response().content
+    raw_model_answer = raw_model_answer.strip()
 
     # Raw accuracy check
     raw_correct = raw_model_answer.startswith(
