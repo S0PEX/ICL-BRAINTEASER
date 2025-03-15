@@ -504,6 +504,8 @@ class Executor:
 
             # Process all models and datasets
             results: dict[str, dict[str, list[ExecutionResult]]] = {}
+            time_per_model: dict[str, float] = {}
+
             for dataset in datasets:
                 logger.debug(
                     f"Processing dataset: {dataset.name} with {dataset.size} riddles"
@@ -511,6 +513,8 @@ class Executor:
                 dataset_results = {}
 
                 for model_name, model in self.models.items():
+                    model.load()
+                    start_time = time.time()
                     dataset_results[model_name] = await self._process_model(
                         pbar,
                         model,
@@ -524,7 +528,7 @@ class Executor:
                         sanitized_suffix,
                         is_async,
                     )
-
+                    time_per_model[model_name] = time.time() - start_time
                 results[dataset.name] = dataset_results
 
             # Wrap results
@@ -538,4 +542,4 @@ class Executor:
                     pickle.dump(wrapped_results, f)
 
             logger.info(f"Execution '{run_name}{suffix_info}' completed successfully.")
-            return wrapped_results
+            return wrapped_results, time_per_model
