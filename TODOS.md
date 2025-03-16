@@ -1,25 +1,7 @@
-# Todos
+# Explinations
 
-- Test smaller models when time:
-  - Llama 3.2 - 1B
-  - R1 - 1.5b, 7b, 8b
-  - Qwen2.5 - 0.5b, 1.5b, 7b
-  - Gemma2 - 2B
+## Test 0
 
-```
-gcloud compute instances create instance-20250214-061309 \
-    --project=healthy-booth-448717-s1 \
-    --zone=us-central1-f \
-    --machine-type=n2d-custom-8-43008 \
-    --network-interface=network-tier=PREMIUM,stack-type=IPV4_ONLY,subnet=default \
-    --maintenance-policy=MIGRATE \
-    --provisioning-model=STANDARD \
-    --service-account=318654533939-compute@developer.gserviceaccount.com \
-    --scopes=https://www.googleapis.com/auth/devstorage.read_only,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/trace.append \
-    --create-disk=auto-delete=yes,boot=yes,device-name=instance-20250214-061309,image=projects/ubuntu-os-accelerator-images/global/images/ubuntu-accelerator-2404-amd64-with-nvidia-550-v20250129,mode=rw,size=250,type=pd-balanced \
-    --no-shielded-secure-boot \
-    --shielded-vtpm \
-    --shielded-integrity-monitoring \
-    --labels=goog-ec-src=vm_add-gcloud \
-    --reservation-affinity=any
-```
+The goal of this test is to explore potential ideas for prompting the models. We’re not focused on full model accuracy at this stage, as we assume that if a quantized model performs well with a given prompt, the FP16 version will perform similarly. To save time and, especially, the cost of renting the GPU, we use the default Ollama models and their quantizations. Most models run in Q4-K-M, though Q8 or others may also be used, depending on what Ollama selects based on the model and its size. We avoid FP16 computation here due to its higher resource requirements, and larger models naturally take longer to process. As a result, we focus on quantized variants of the models to speed up the process.
+
+Quantized models have shown to perform well in our initial tests, achieving around 85% accuracy. The main downside is that smaller models tend to suffer more from quantization loss compared to larger models, which have more parameters. To balance time and cost, we use Q4 and similar quantizations in this test, and the results will help inform further experiments with less-quantized models that still fit within the 24 GB of RAM on the RTX 3090 / 4090.

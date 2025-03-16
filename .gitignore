@@ -150,3 +150,6 @@ data/
 models
 
 *.pkl
+*.tex
+.~lock.*
+results_backup*
